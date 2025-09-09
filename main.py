@@ -3,12 +3,24 @@ import datetime
 import json
 import os
 import re
+from pathlib import Path
 
 import time
 
 import dotenv
 
 dotenv.load_dotenv()
+
+# Prompt loading configuration
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+
+def read_prompt(filename: str) -> str:
+    """Read a prompt template from the prompts directory."""
+    path = PROMPTS_DIR / filename
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Prompt file not found: {path}")
 
 import numpy as np
 import requests
@@ -54,10 +66,10 @@ with this file it may be worth double checking key components locally.
 
 ######################### CONSTANTS #########################
 # Constants
-SUBMIT_PREDICTION = False  # set to True to publish your predictions to Metaculus
-USE_EXAMPLE_QUESTIONS = True  # set to True to forecast example questions rather than the tournament questions
-NUM_RUNS_PER_QUESTION = 1  # The median forecast is taken between NUM_RUNS_PER_QUESTION runs
-SKIP_PREVIOUSLY_FORECASTED_QUESTIONS = False
+SUBMIT_PREDICTION = True  # set to True to publish your predictions to Metaculus
+USE_EXAMPLE_QUESTIONS = False  # set to True to forecast example questions rather than the tournament questions
+NUM_RUNS_PER_QUESTION = 5  # The median forecast is taken between NUM_RUNS_PER_QUESTION runs
+SKIP_PREVIOUSLY_FORECASTED_QUESTIONS = True
 
 # A unique identifier for this process run to correlate events
 RUN_ID = os.getenv("RUN_ID") or f"run-{uuid.uuid4()}"
@@ -205,52 +217,8 @@ def call_asknews(question: str) -> str:
 
 # This section includes functionality for binary questions.
 
-BINARY_PROMPT_TEMPLATE = """
-You are a professional superforecaster. You will produce a transparent, Bayes-consistent forecast.
-
-Your question is:
-{title}
-
-Question background:
-{background}
-
-
-This question's outcome will be determined by the specific criteria below. These criteria have not yet been satisfied.
-Resolution criteria (read carefully):
-{resolution_criteria}
-
-{fine_print}
-
-
-Your research assistant says:
-{summary_report}
-
-Today is {today} (timezone: {timezone}).
-
-Current Metaculus community prediction: {community_prediction}%
-
-Before answering you write:
-(a) The time left until the outcome to the question is known.
-(b) The status quo outcome if nothing changed.
-(c) A brief description of a scenario that results in a No outcome.
-(d) A brief description of a scenario that results in a Yes outcome.
-(e) A brief evaluation of the Metaculus community prediction
-
-1) Outside view first
-- Define a clear reference class for this question (2–3 sentences).
-- Report the base rate prior P0 for “Yes” from this reference class
-
-2) Consider-the-opposite & premortem
-- Devil’s advocate: the strongest pro-No argument against your current view (2–4 sentences).  
-- Premortem: assume your final forecast is wrong; what most likely misled you?
-
-4) Update triggers (“what would change my mind”)
-- List 3–5 concrete signals that would shift your probability by ≥5 percentage points, and in which direction.
-
-You write your rationale remembering that good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time. Use the Metaculus community prediction as a Bayesion prior.
-
-The last thing you write is your final answer as: "Probability: ZZ%", 0-100
-"""
+# Load prompt templates from files
+BINARY_PROMPT_TEMPLATE = read_prompt("binary_question_prompt.txt")
 
 
 def extract_probability_from_response_as_percentage_not_decimal(
@@ -328,55 +296,7 @@ async def get_binary_gpt_prediction(
 ####################### NUMERIC ###############
 # @title Numeric prompt & functions
 
-NUMERIC_PROMPT_TEMPLATE = """
-You are a professional forecaster interviewing for a job.
-
-Your interview question is:
-{title}
-
-Background:
-{background}
-
-{resolution_criteria}
-
-{fine_print}
-
-Units for answer: {units}
-
-Your research assistant says:
-{summary_report}
-
-Today is {today}.
-
-{lower_bound_message}
-{upper_bound_message}
-
-
-Formatting Instructions:
-- Please notice the units requested (e.g. whether you represent a number as 1,000,000 or 1m).
-- Never use scientific notation.
-- Always start with a smaller number (more negative if negative) and then increase from there
-
-Before answering you write:
-(a) The time left until the outcome to the question is known.
-(b) The outcome if nothing changed.
-(c) The outcome if the current trend continued.
-(d) The expectations of experts and markets.
-(e) A brief description of an unexpected scenario that results in a low outcome.
-(f) A brief description of an unexpected scenario that results in a high outcome.
-
-You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unkowns.
-
-The last thing you write is your final answer as:
-"
-Percentile 10: XX
-Percentile 20: XX
-Percentile 40: XX
-Percentile 60: XX
-Percentile 80: XX
-Percentile 90: XX
-"
-"""
+NUMERIC_PROMPT_TEMPLATE = read_prompt("numeric_question_prompt.txt")
 
 
 def extract_percentiles_from_response(forecast_text: str) -> dict:
@@ -622,41 +542,32 @@ async def get_numeric_gpt_prediction(
 ########################## MULTIPLE CHOICE ###############
 # @title Multiple Choice prompt & functions
 
-MULTIPLE_CHOICE_PROMPT_TEMPLATE = """
-You are a professional forecaster interviewing for a job.
+MULTIPLE_CHOICE_PROMPT_TEMPLATE = read_prompt("multiple_choice_question_prompt.txt")
 
-Your interview question is:
-{title}
+# Validate that required placeholders exist in templates
+def validate_prompt_template(template_name: str, template: str, required_placeholders: list[str]):
+    """Validate that a prompt template contains all required placeholders."""
+    missing = []
+    for placeholder in required_placeholders:
+        if placeholder not in template:
+            missing.append(placeholder)
+    if missing:
+        raise ValueError(f"Missing placeholders in {template_name}: {missing}")
 
-The options are: {options}
+# Validate all templates
+validate_prompt_template("binary_question_prompt.txt", BINARY_PROMPT_TEMPLATE,
+                        ["{title}", "{background}", "{resolution_criteria}", "{fine_print}",
+                         "{summary_report}", "{today}", "{timezone}", "{community_prediction}"])
 
+validate_prompt_template("numeric_question_prompt.txt", NUMERIC_PROMPT_TEMPLATE,
+                        ["{title}", "{background}", "{resolution_criteria}", "{fine_print}",
+                         "{units}", "{summary_report}", "{today}", "{lower_bound_message}", "{upper_bound_message}"])
 
-Background:
-{background}
+validate_prompt_template("multiple_choice_question_prompt.txt", MULTIPLE_CHOICE_PROMPT_TEMPLATE,
+                        ["{title}", "{options}", "{background}", "{resolution_criteria}",
+                         "{fine_print}", "{summary_report}", "{today}"])
 
-{resolution_criteria}
-
-{fine_print}
-
-
-Your research assistant says:
-{summary_report}
-
-Today is {today}.
-
-Before answering you write:
-(a) The time left until the outcome to the question is known.
-(b) The status quo outcome if nothing changed.
-(c) A description of an scenario that results in an unexpected outcome.
-
-You write your rationale remembering that (1) good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time, and (2) good forecasters leave some moderate probability on most options to account for unexpected outcomes.
-
-The last thing you write is your final probabilities for the N options in this order {options} as:
-Option_A: Probability_A
-Option_B: Probability_B
-...
-Option_N: Probability_N
-"""
+print(f"Loaded prompt templates from {PROMPTS_DIR}")
 
 
 def extract_option_probabilities_from_response(forecast_text: str, options) -> float:
