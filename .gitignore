@@ -2,6 +2,7 @@
 benchmarks/
 sandbox.py
 
+logs/
 
 ### General gitignore ###
 
