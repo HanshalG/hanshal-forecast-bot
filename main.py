@@ -16,6 +16,15 @@ from asknews_sdk import AskNewsSDK
 from openai import AsyncOpenAI
 import uuid
 from forecast_logger import log_forecast_event
+from metaculus_utils import (
+    post_question_comment,
+    post_question_prediction,
+    create_forecast_payload,
+    list_posts_from_tournament,
+    get_open_question_ids_from_tournament,
+    get_post_details,
+    get_metaculus_community_prediction,
+)
 
 
 """
@@ -45,10 +54,10 @@ with this file it may be worth double checking key components locally.
 
 ######################### CONSTANTS #########################
 # Constants
-SUBMIT_PREDICTION = True  # set to True to publish your predictions to Metaculus
-USE_EXAMPLE_QUESTIONS = False  # set to True to forecast example questions rather than the tournament questions
+SUBMIT_PREDICTION = False  # set to True to publish your predictions to Metaculus
+USE_EXAMPLE_QUESTIONS = True  # set to True to forecast example questions rather than the tournament questions
 NUM_RUNS_PER_QUESTION = 1  # The median forecast is taken between NUM_RUNS_PER_QUESTION runs
-SKIP_PREVIOUSLY_FORECASTED_QUESTIONS = True
+SKIP_PREVIOUSLY_FORECASTED_QUESTIONS = False
 
 # A unique identifier for this process run to correlate events
 RUN_ID = os.getenv("RUN_ID") or f"run-{uuid.uuid4()}"
@@ -77,7 +86,7 @@ TOURNAMENT_ID = FALL_2025_AI_BENCHMARKING_ID
 
 # The example questions can be used for testing your bot. (note that question and post id are not always the same)
 EXAMPLE_QUESTIONS = [  # (question_id, post_id)
-    (39336, 39336),
+    (39724, 39724),
     #(578, 578),  # Human Extinction - Binary - https://www.metaculus.com/questions/578/human-extinction-by-2100/
     #(14333, 14333),  # Age of Oldest Human - Numeric - https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/
     #(22427, 22427),  # Number of New Leading AI Labs - Multiple Choice - https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/
@@ -92,179 +101,9 @@ AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api"
 
 
-def post_question_comment(post_id: int, comment_text: str) -> None:
-    """
-    Post a comment on the question page as the bot user.
-    """
-
-    response = requests.post(
-        f"{API_BASE_URL}/comments/create/",
-        json={
-            "text": comment_text,
-            "parent": None,
-            "included_forecast": True,
-            "is_private": True,
-            "on_post": post_id,
-        },
-        **AUTH_HEADERS,  # type: ignore
-    )
-    if not response.ok:
-        raise RuntimeError(response.text)
 
 
-def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
-    """
-    Post a forecast on a question.
-    """
-    url = f"{API_BASE_URL}/questions/forecast/"
-    response = requests.post(
-        url,
-        json=[
-            {
-                "question": question_id,
-                **forecast_payload,
-            },
-        ],
-        **AUTH_HEADERS,  # type: ignore
-    )
-    print(f"Prediction Post status code: {response.status_code}")
-    if not response.ok:
-        raise RuntimeError(response.text)
-
-
-def create_forecast_payload(
-    forecast: float | dict[str, float] | list[float],
-    question_type: str,
-) -> dict:
-    """
-    Accepts a forecast and generates the api payload in the correct format.
-
-    If the question is binary, forecast must be a float.
-    If the question is multiple choice, forecast must be a dictionary that
-      maps question.options labels to floats.
-    If the question is numeric, forecast must be a dictionary that maps
-      quartiles or percentiles to datetimes, or a 201 value cdf.
-    """
-    if question_type == "binary":
-        return {
-            "probability_yes": forecast,
-            "probability_yes_per_category": None,
-            "continuous_cdf": None,
-        }
-    if question_type == "multiple_choice":
-        return {
-            "probability_yes": None,
-            "probability_yes_per_category": forecast,
-            "continuous_cdf": None,
-        }
-    # numeric or date
-    return {
-        "probability_yes": None,
-        "probability_yes_per_category": None,
-        "continuous_cdf": forecast,
-    }
-
-
-def list_posts_from_tournament(
-    tournament_id: int | str = TOURNAMENT_ID, offset: int = 0, count: int = 50
-) -> list[dict]:
-    """
-    List (all details) {count} posts from the {tournament_id}
-    """
-    url_qparams = {
-        "limit": count,
-        "offset": offset,
-        "order_by": "-hotness",
-        "forecast_type": ",".join(
-            [
-                "binary",
-                "multiple_choice",
-                "numeric",
-                "discrete",
-            ]
-        ),
-        "tournaments": [tournament_id],
-        "statuses": "open",
-        "include_description": "true",
-    }
-    url = f"{API_BASE_URL}/posts/"
-    response = requests.get(url, **AUTH_HEADERS, params=url_qparams)  # type: ignore
-    if not response.ok:
-        raise Exception(response.text)
-    data = json.loads(response.content)
-    return data
-
-
-def get_open_question_ids_from_tournament() -> list[tuple[int, int]]:
-    posts = list_posts_from_tournament()
-
-    post_dict = dict()
-    for post in posts["results"]:
-        if question := post.get("question"):
-            # single question post
-            post_dict[post["id"]] = [question]
-
-    open_question_id_post_id = []  # [(question_id, post_id)]
-    for post_id, questions in post_dict.items():
-        for question in questions:
-            if question.get("status") == "open":
-                print(
-                    f"ID: {question['id']}\nQ: {question['title']}\nCloses: "
-                    f"{question['scheduled_close_time']}"
-                )
-                open_question_id_post_id.append((question["id"], post_id))
-
-    return open_question_id_post_id
-
-
-def get_post_details(post_id: int) -> dict:
-    """
-    Get all details about a post from the Metaculus API.
-    """
-    url = f"{API_BASE_URL}/posts/{post_id}/"
-    print(f"Getting details for {url}")
-    response = requests.get(
-        url,
-        **AUTH_HEADERS,  # type: ignore
-    )
-    if not response.ok:
-        raise Exception(response.text)
-    details = json.loads(response.content)
-    return details
-
-
-def get_metaculus_community_prediction(post_id: int) -> float:
-    """
-    Fetch the current Metaculus community prediction (recency-weighted mean for YES)
-    for the given post and return it as a percentage in [0, 100].
-    """
-    url = f"{API_BASE_URL}/posts/{post_id}/"
-    response = requests.get(
-        url,
-        **AUTH_HEADERS,  # type: ignore
-    )
-    if not response.ok:
-        raise RuntimeError(response.text)
-    data = json.loads(response.content)
-    try:
-        aggs = data["question"]["aggregations"]["recency_weighted"]
-        vec = None
-        if isinstance(aggs, dict) and aggs.get("current"):
-            current = aggs["current"]
-            vec = current.get("means") or current.get("centers")
-        if vec is None and isinstance(aggs, dict) and aggs.get("history"):
-            last = aggs["history"][-1]
-            vec = last.get("means") or last.get("centers")
-        if not vec:
-            raise KeyError("No 'means' or 'centers' found in recency_weighted")
-        if isinstance(vec, list):
-            # binary returns single element list; mcq returns many. Take first as YES.
-            return float(vec[0] * 100.0)
-        return float(vec * 100.0)
-    except (KeyError, IndexError, TypeError) as e:
-        raise RuntimeError(f"Failed to extract community prediction: {e}")
-
-CONCURRENT_REQUESTS_LIMIT = 1
+CONCURRENT_REQUESTS_LIMIT = 3
 llm_rate_limiter = asyncio.Semaphore(CONCURRENT_REQUESTS_LIMIT)
 
 
@@ -1170,7 +1009,7 @@ if __name__ == "__main__":
     if USE_EXAMPLE_QUESTIONS:
         open_question_id_post_id = EXAMPLE_QUESTIONS
     else:
-        open_question_id_post_id = get_open_question_ids_from_tournament()
+        open_question_id_post_id = get_open_question_ids_from_tournament(TOURNAMENT_ID)
 
     asyncio.run(
         forecast_questions(
