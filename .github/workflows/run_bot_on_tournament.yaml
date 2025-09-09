@@ -47,3 +47,17 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
           ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
+          # Logging configuration
+          LOG_ENABLE: "true"
+          LOG_PLAINTEXT: "true"
+          LOG_INCLUDE_COMMENT: "true"
+          LOG_GLOBAL_STREAM: "true"
+          RUN_ID: "github-run-${{ github.run_number }}"
+      
+      - name: Upload forecast logs
+        uses: actions/upload-artifact@v4
+        if: always() # Upload logs even if bot fails
+        with:
+          name: forecast-logs-run-${{ github.run_number }}
+          path: logs/
+          retention-days: 30
