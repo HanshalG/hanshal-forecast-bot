@@ -28,7 +28,6 @@ def post_question_comment(post_id: int, comment_text: str) -> None:
     if not response.ok:
         raise RuntimeError(response.text)
 
-
 def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
     """
     Post a forecast on a question.
@@ -391,4 +390,19 @@ def get_metaculus_community_prediction(post_id: int) -> float:
         # Catch any other unexpected errors and provide context
         raise RuntimeError(f"Failed to get community prediction for post {post_id}: {e}")
 
+def forecast_is_already_made(post_details: dict) -> bool:
+    """
+    Check if a forecast has already been made by looking at my_forecasts in the question data.
 
+    question.my_forecasts.latest.forecast_values has the following values for each question type:
+    Binary: [probability for no, probability for yes]
+    Numeric: [cdf value 1, cdf value 2, ..., cdf value 201]
+    Multiple Choice: [probability for option 1, probability for option 2, ...]
+    """
+    try:
+        forecast_values = post_details["question"]["my_forecasts"]["latest"][
+            "forecast_values"
+        ]
+        return forecast_values is not None
+    except Exception:
+        return False
