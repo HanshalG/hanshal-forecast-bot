@@ -43,7 +43,7 @@ def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
         ],
         **AUTH_HEADERS,  # type: ignore
     )
-    print(f"Prediction Post status code: {response.status_code}")
+    # Status code is checked below; avoid noisy printing in library code
     if not response.ok:
         raise RuntimeError(response.text)
 
@@ -128,10 +128,7 @@ def get_open_question_ids_from_tournament(tournament_id: int | str | None = None
     for post_id, questions in post_dict.items():
         for question in questions:
             if question.get("status") == "open":
-                print(
-                    f"ID: {question['id']}\nQ: {question['title']}\nCloses: "
-                    f"{question['scheduled_close_time']}"
-                )
+                # Keep library quiet; caller can log if desired
                 open_question_id_post_id.append((question["id"], post_id))
 
     return open_question_id_post_id
@@ -142,7 +139,7 @@ def get_post_details(post_id: int) -> dict:
     Get all details about a post from the Metaculus API.
     """
     url = f"{API_BASE_URL}/posts/{post_id}/"
-    print(f"Getting details for {url}")
+    # Keep quiet in library; caller can log if desired
     response = requests.get(
         url,
         **AUTH_HEADERS,  # type: ignore
@@ -248,6 +245,29 @@ def extract_num_forecasters(post: dict) -> int:
                 if isinstance(count, int) and count >= 0:
                     return count
 
+        # Try aggregations field which might contain forecaster data
+        if "aggregations" in question:
+            aggregations = question["aggregations"]
+            if isinstance(aggregations, dict):
+                # Look for forecaster_count in various aggregation types.
+                # Prefer unweighted over recency_weighted to avoid inflated RW counts.
+                for agg_type in ["unweighted", "recency_weighted"]:
+                    if agg_type in aggregations and isinstance(aggregations[agg_type], dict):
+                        agg_data = aggregations[agg_type]
+                        if "latest" in agg_data and isinstance(agg_data["latest"], dict):
+                            latest = agg_data["latest"]
+                            if "forecaster_count" in latest:
+                                count = latest["forecaster_count"]
+                                if isinstance(count, int) and count >= 0:
+                                    return count
+
+                # Also check direct fields in aggregations
+                for agg_field in ["forecast_count", "num_forecasters", "total_forecasters", "count"]:
+                    if agg_field in aggregations:
+                        count = aggregations[agg_field]
+                        if isinstance(count, int) and count >= 0:
+                            return count
+
         return 0
     except (KeyError, TypeError, ValueError):
         return 0
@@ -325,6 +345,54 @@ def extract_recency_weighted_yes_pct(post: dict) -> float:
 
     except (KeyError, IndexError, TypeError, ValueError) as e:
         raise RuntimeError(f"Failed to extract community prediction: {e}")
+
+
+def get_metaculus_community_prediction_and_count(post_id: int) -> tuple[float, int]:
+    """
+    Return a tuple of (community_prediction_pct, n_forecasters) for the post
+    with the most forecasters that shares the same slug as the given post.
+
+    - community_prediction_pct: recency-weighted YES mean as percentage [0, 100]
+    - n_forecasters: uses the same selected post; prefers recency-weighted
+      latest forecaster_count when available, otherwise falls back via
+      extract_num_forecasters.
+    """
+    try:
+        seed_post = get_post_details(post_id)
+        slug = extract_slug(seed_post)
+
+        summaries = search_posts_by_slug(slug)
+
+        candidates = []
+        for summary in summaries:
+            if summary.get("slug") == slug:
+                try:
+                    full_post = get_post_details(summary["id"])
+                    if "question" in full_post and "group_of_questions" not in full_post:
+                        candidates.append(full_post)
+                except Exception:
+                    continue
+
+        if len(candidates) == 0:
+            if "question" in seed_post and "group_of_questions" not in seed_post:
+                best_post = seed_post
+            else:
+                raise RuntimeError(
+                    f"Found no posts with slug '{slug}' that have questions, and original post is not a valid question post."
+                )
+        elif len(candidates) == 1:
+            best_post = candidates[0]
+        else:
+            best_post = max(candidates, key=extract_num_forecasters)
+
+        prediction_pct = extract_recency_weighted_yes_pct(best_post)
+        n_forecasters = extract_num_forecasters(best_post)
+        return prediction_pct, n_forecasters
+
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"Failed to get community prediction and count for post {post_id}: {e}")
 
 
 def get_metaculus_community_prediction(post_id: int) -> float:

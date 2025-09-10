@@ -10,7 +10,7 @@ from openai import AsyncOpenAI
 
 load_dotenv()
 
-PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 # Constants
 CONCURRENT_REQUESTS_LIMIT = 5
@@ -110,6 +110,17 @@ def call_asknews(question: str) -> str:
         return formatted_articles
 
     return formatted_articles
+
+def run_research(question: str) -> str:
+    research = ""
+    if ASKNEWS_CLIENT_ID and ASKNEWS_SECRET:
+        research = call_asknews(question)
+    else:
+        research = "No research done"
+
+    print(f"########################\nResearch Found:\n{research}\n########################")
+
+    return research
 
 def extract_probability_from_response_as_percentage_not_decimal(
     forecast_text: str,

@@ -36,6 +36,7 @@ from src.utils import (
     generate_continuous_cdf,
     extract_option_probabilities_from_response,
     PROMPTS_DIR,
+    run_research,
 )
 
 
@@ -93,18 +94,6 @@ API_BASE_URL = "https://www.metaculus.com/api"
 
 CONCURRENT_REQUESTS_LIMIT = 5
 llm_rate_limiter = asyncio.Semaphore(CONCURRENT_REQUESTS_LIMIT)
-
-
-def run_research(question: str) -> str:
-    research = ""
-    if ASKNEWS_CLIENT_ID and ASKNEWS_SECRET:
-        research = call_asknews(question)
-    else:
-        research = "No research done"
-
-    print(f"########################\nResearch Found:\n{research}\n########################")
-
-    return research
 
 # Removed external research providers (Perplexity/Exa); only AskNews is supported now.
 
