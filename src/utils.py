@@ -10,7 +10,7 @@ from openai import AsyncOpenAI
 
 load_dotenv()
 
-PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 # Constants
 CONCURRENT_REQUESTS_LIMIT = 5
