@@ -15,8 +15,8 @@ import numpy as np
 from asknews_sdk import AskNewsSDK
 from openai import AsyncOpenAI
 import uuid
-from forecast_logger import log_forecast_event
-from metaculus_utils import (
+from src.forecast_logger import log_forecast_event
+from src.metaculus_utils import (
     forecast_is_already_made,
     post_question_comment,
     post_question_prediction,
@@ -27,7 +27,7 @@ from metaculus_utils import (
     get_metaculus_community_prediction,
     forecast_is_already_made
 )
-from utils import (
+from src.utils import (
     read_prompt,
     call_llm,
     call_asknews,
@@ -41,10 +41,10 @@ from utils import (
 
 ######################### CONSTANTS #########################
 # Constants
-SUBMIT_PREDICTION = False  # set to True to publish your predictions to Metaculus
-USE_EXAMPLE_QUESTIONS = True  # set to True to forecast example questions rather than the tournament questions
-NUM_RUNS_PER_QUESTION = 2  # The median forecast is taken between NUM_RUNS_PER_QUESTION runs
-SKIP_PREVIOUSLY_FORECASTED_QUESTIONS = False
+SUBMIT_PREDICTION = True  # set to True to publish your predictions to Metaculus
+USE_EXAMPLE_QUESTIONS = False  # set to True to forecast example questions rather than the tournament questions
+NUM_RUNS_PER_QUESTION = 5  # The median forecast is taken between NUM_RUNS_PER_QUESTION runs
+SKIP_PREVIOUSLY_FORECASTED_QUESTIONS = True
 
 LLM_MODEL = "openai/gpt-5-mini"
 
