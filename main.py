@@ -4,6 +4,7 @@ import os
 from pickle import FALSE
 import re
 from pathlib import Path
+import argparse
 
 import time
 
@@ -42,7 +43,6 @@ from src.utils import (
 ######################### CONSTANTS #########################
 # Constants
 SUBMIT_PREDICTION = True  # set to True to publish your predictions to Metaculus
-USE_EXAMPLE_QUESTIONS = False  # set to True to forecast example questions rather than the tournament questions
 NUM_RUNS_PER_QUESTION = 5  # The median forecast is taken between NUM_RUNS_PER_QUESTION runs
 SKIP_PREVIOUSLY_FORECASTED_QUESTIONS = True
 
@@ -69,8 +69,6 @@ CURRENT_METACULUS_CUP_ID = "metaculus-cup"
 
 AXC_2025_TOURNAMENT_ID = 32564
 AI_2027_TOURNAMENT_ID = "ai-2027"
-
-TOURNAMENT_ID = FALL_2025_AI_BENCHMARKING_ID
 
 # The example questions can be used for testing your bot. (note that question and post id are not always the same)
 EXAMPLE_QUESTIONS = [  # (question_id, post_id)
@@ -596,16 +594,22 @@ async def forecast_questions(
         print(error_message)
         raise RuntimeError(error_message)
 
-
-
-
-######################## FINAL RUN #########################
 if __name__ == "__main__":
-    if USE_EXAMPLE_QUESTIONS:
-        open_question_id_post_id = EXAMPLE_QUESTIONS
-    else:
-        open_question_id_post_id = get_open_question_ids_from_tournament(TOURNAMENT_ID)
+    parser = argparse.ArgumentParser(description="Run the forecasting bot")
+    parser.add_argument(
+        "--mode",
+        choices=["fall-aib-2025", "minibench", "example_questions"],
+        default="fall-aib-2025",
+    )
+    args = parser.parse_args()
 
+    if args.mode == "example_questions":
+        open_question_id_post_id = EXAMPLE_QUESTIONS
+    elif args.mode == "minibench":
+        open_question_id_post_id = get_open_question_ids_from_tournament(CURRENT_MINIBENCH_ID)
+    elif args.mode == "fall-aib-2025":
+        open_question_id_post_id = get_open_question_ids_from_tournament(FALL_2025_AI_BENCHMARKING_ID)
+    
     asyncio.run(
         forecast_questions(
             open_question_id_post_id,
