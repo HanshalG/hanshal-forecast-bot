@@ -63,7 +63,7 @@ def _compute_prior(k_yes: int, n_total: int, mapping_discount: float) -> float:
     # Clamp to [0.01, 0.99]
     return max(0.01, min(0.99, prior))
 
-async def compute_base_rate_prior(question_details: dict) -> float:
+async def compute_base_rate_prior_with_research(question_details: dict, summary_report: str) -> float:
     # Derive time_horizon
     if "scheduled_close_time" in question_details:
         time_horizon = str(question_details["scheduled_close_time"])
@@ -76,9 +76,6 @@ async def compute_base_rate_prior(question_details: dict) -> float:
         timezone_str = datetime.datetime.now().astimezone().tzinfo.key  # type: ignore[attr-defined]
     except Exception:
         timezone_str = str(datetime.datetime.now().astimezone().tzinfo)
-
-    # Get research
-    summary_report = run_research(question_details["title"])
 
     # Format prompt
     prompt = _format_prompt(question_details, summary_report, today, timezone_str, time_horizon)

@@ -1,5 +1,10 @@
 from math import log, exp
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List
+
+from src.base_rate_agent import compute_base_rate_prior_with_research
+from src.evidence_agent import generate_evidence
+from src.metaculus_utils import get_metaculus_community_prediction_and_count
+from src.utils import run_research
 
 # Placeholder for future base rate prior function
 # def get_base_rate_prior(question_type: str) -> float:
@@ -84,70 +89,77 @@ def integrate_base_with_metaculus_weight(
     base_rate_prior: float,
 ) -> float:
     return integrate_log_odds_shrinkage(base_rate_prior, community_prediction, metaculus_weight(n_forecasters, community_prediction))
-# --- Example usage ---
-if __name__ == "__main__":
-    import asyncio
-    from src.base_rate_agent import compute_base_rate_prior
-    from src.metaculus_utils import get_post_details, get_metaculus_community_prediction, extract_num_forecasters
 
-    async def test_base_rate_integration():
-        # Use the first example question from main.py
-        question_id, post_id = (39724, 39724)
+def probability_to_odds(p: float, eps: float = 1e-9) -> float:
+    p = clip01(p, eps)
+    return p / (1.0 - p)
 
-        print(f"Testing with question ID {question_id}, post ID {post_id}")
-        print("=" * 50)
 
-        # Get question details
+def odds_to_probability(o: float) -> float:
+    if o <= 0:
+        return 0.0
+    return o / (1.0 + o)
+
+
+def crowd_bayes_factor(prior_p: float, crowd_p: float, eps: float = 1e-9) -> float:
+    O_prior = probability_to_odds(prior_p, eps)
+    O_crowd = probability_to_odds(crowd_p, eps)
+    return O_crowd / O_prior
+
+
+def novel_bayes_factor(evidence_items: List[Dict]) -> float:
+    bf = 1.0
+    for item in evidence_items:
         try:
-            post_details = get_post_details(post_id)
-            question_details = post_details["question"]
-            print(f"Question: {question_details['title']}")
-            print(f"Type: {question_details['type']}")
+            if item.get("priced_in"):
+                continue
+            lr = float(item.get("likelihood_ratio", 1.0))
+            if lr <= 0:
+                continue
+            if item.get("direction") == "against":
+                lr = 1.0 / lr
+            bf *= lr
+        except Exception:
+            continue
+    return bf
 
 
-        except Exception as e:
-            print(f"Error getting post details: {e}")
-            return
+async def run_bayesian_update(question_details: dict, post_id: int | None = None) -> dict:
+    # 0) Shared research once
+    summary_report = run_research(question_details.get("title", ""))
 
-        # Get base rate prior
+    # 1) Base-rate prior using shared research
+    prior = await compute_base_rate_prior_with_research(question_details, summary_report)
+
+    # 2) Crowd probability and forecaster count
+    crowd_prob = prior
+    n_forecasters = 0
+    if post_id is not None:
         try:
-            base_rate_prior = await compute_base_rate_prior(question_details)
-            print(f"Base rate prior: {base_rate_prior:.4f}")
-        except Exception as e:
-            import traceback
-            print(f"Error computing base rate prior: {e}")
-            print("Full traceback:")
-            traceback.print_exc()
-            return
+            crowd_pct, n_forecasters = get_metaculus_community_prediction_and_count(post_id)
+            crowd_prob = max(0.01, min(0.99, crowd_pct / 100.0))
+        except Exception:
+            crowd_prob = prior
+            n_forecasters = 0
 
-        # Get community prediction and number of forecasters
-        try:
-            from src.metaculus_utils import get_metaculus_community_prediction_and_count
-            community_prediction, n_forecasters = get_metaculus_community_prediction_and_count(post_id)
-            print(f"Community prediction: {community_prediction:.2f}%")
-            print(f"Number of forecasters: {n_forecasters}")
-        except Exception as e:
-            print(f"Error getting community prediction: {e}")
-            return
+    # 3) Evidence list
+    evidence_payload = await generate_evidence(question_details, summary_report=summary_report)
+    items = evidence_payload.get("evidence", [])
 
-        # Integrate using bayesian methods
-        try:
-            integrated_prediction = integrate_base_with_metaculus_weight(
-                community_prediction / 100.0,  # Convert to decimal
-                n_forecasters,
-                base_rate_prior
-            )
-            print(f"Integrated probability: {integrated_prediction:.4f}")
-            print(f"Base rate prior (again): {base_rate_prior:.4f}")
+    # 4) Compute Bayes factors
+    bf_crowd = crowd_bayes_factor(prior, crowd_prob)
+    bf_novel = novel_bayes_factor(items)
 
-            # Also show the weight used
-            weight = metaculus_weight(n_forecasters, community_prediction / 100.0)
-            print(f"Applied weight: {weight:.3f}")
+    # 5) Final odds and posterior (use crowd as baseline then apply novel evidence)
+    O_final = probability_to_odds(crowd_prob) * bf_novel
+    posterior = odds_to_probability(O_final)
+    posterior = max(0.01, min(0.99, posterior))
 
-        except Exception as e:
-            print(f"Error in integration: {e}")
-            return
-
-    # Run the test
-    asyncio.run(test_base_rate_integration())
-
+    return {
+        "prior_base_rate": prior,
+        "metaculus_probability": crowd_prob,
+        "crowd_bayes_factor": bf_crowd,
+        "evidence": items,
+        "novel_bayes_factor": bf_novel,
+        "posterior_probability": posterior,
+    }
