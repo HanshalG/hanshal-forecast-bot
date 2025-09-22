@@ -7,6 +7,7 @@ import time
 import numpy as np
 from asknews_sdk import AskNewsSDK
 from openai import AsyncOpenAI
+from exa_py import Exa
 
 load_dotenv()
 
@@ -20,6 +21,67 @@ llm_rate_limiter = asyncio.Semaphore(CONCURRENT_REQUESTS_LIMIT)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 ASKNEWS_CLIENT_ID = os.getenv("ASKNEWS_CLIENT_ID")
 ASKNEWS_SECRET = os.getenv("ASKNEWS_SECRET")
+EXA_API_KEY = os.getenv("EXA_API_KEY")
+
+exa = Exa(api_key=EXA_API_KEY)
+
+async def get_exa_research_report(content: str) -> str:
+    """Get research report by asking questions to Exa."""
+    # Get research questions from LLM
+    questions_response = await call_llm(content, "gpt-5-mini", 0.3)
+
+    #print("questions_response", questions_response)
+    # Extract questions from response
+    questions = [q.strip() for q in questions_response.split('Question:') if q.strip()]
+    questions = questions[:10] # limit the number of questions to 10
+    # for question in questions:
+    #     print("question", question)
+    #     print("--------------------------------")
+
+    # Get answers for each question
+    reports = []
+    for question in questions:
+        try:
+            response = exa.answer(question)
+
+            # Exa Answer API typically returns an object with `answer` and `citations`
+            answer_text = None
+            if response is not None:
+                reports.append("\n\n"+question)
+                # Object attribute access
+                answer_text = getattr(response, "answer", None)
+                # Dict-like fallback
+                if answer_text is None and isinstance(response, dict):
+                    answer_text = response.get("answer") or response.get("text")
+
+            citation_lines: list[str] = []
+            citations = getattr(response, "citations", None)
+            if citations and isinstance(citations, list):
+                for idx, c in enumerate(citations, start=1):
+                    url = getattr(c, "url", None) if hasattr(c, "url") else (
+                        c.get("url") if isinstance(c, dict) else None
+                    )
+                    title = getattr(c, "title", None) if hasattr(c, "title") else (
+                        c.get("title") if isinstance(c, dict) else None
+                    )
+                    if url:
+                        if title:
+                            citation_lines.append(f"[{idx}] {title} - {url}")
+                        else:
+                            citation_lines.append(f"[{idx}] {url}")
+
+            if answer_text:
+                if citation_lines:
+                    reports.append(f"{answer_text}\n\nSources:\n" + "\n".join(citation_lines))
+                else:
+                    reports.append(answer_text)
+        except Exception as e:
+            reports.append(f"Error fetching Exa answer: {e}")
+
+    result = "\n\n".join(reports) if reports else "No research results found."
+    print("Exa Research Report:\n\n", result)
+    # Combine all reports
+    return result
 
 def read_prompt(filename: str) -> str:
     """Read a prompt template from the prompts directory."""
