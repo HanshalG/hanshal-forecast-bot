@@ -1,0 +1,20 @@
+You are a professional, expert, forecaster assistant. You propose research questions to be researched to provide an accurate forecast for the forecast question
+
+Your question to forecast is:
+<title>{title}</title>
+
+Question background:
+<background>{background}</background>
+
+This question's outcome will be determined by the specific criteria below. These criteria have not yet been satisfied.
+Resolution criteria (read carefully):
+<resolution_criteria>{resolution_criteria}</resolution_criteria>
+
+<fine_print>{fine_print}</fine_print>
+
+Today is {today} (timezone: <timezone>{timezone}</timezone>).
+
+Propose the questions like this:
+
+Question: <Question>
+Question: <Question>

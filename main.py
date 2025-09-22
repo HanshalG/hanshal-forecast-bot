@@ -32,6 +32,7 @@ from src.utils import (
     read_prompt,
     call_llm,
     call_asknews,
+    get_exa_research_report,
     extract_probability_from_response_as_percentage_not_decimal,
     extract_percentiles_from_response,
     generate_continuous_cdf,
@@ -114,7 +115,7 @@ def run_research(question: str) -> str:
 
 # Load prompt templates from files
 BINARY_PROMPT_TEMPLATE = read_prompt("binary_question_prompt.txt")
-
+EXA_RESEARCH_PROMPT_TEMPLATE = read_prompt("exa_research_prompt.txt")
 
 
 
@@ -136,6 +137,17 @@ async def get_binary_gpt_prediction(
 
     summary_report = run_research(title)
 
+    exa_content = EXA_RESEARCH_PROMPT_TEMPLATE.format(
+        title=title,
+        today=today,
+        timezone=timezone_str,
+        background=background,
+        resolution_criteria=resolution_criteria,
+        fine_print=fine_print,
+    )
+
+    exa_report = await get_exa_research_report(exa_content)
+
     content = BINARY_PROMPT_TEMPLATE.format(
         title=title,
         today=today,
@@ -143,7 +155,7 @@ async def get_binary_gpt_prediction(
         background=background,
         resolution_criteria=resolution_criteria,
         fine_print=fine_print,
-        summary_report=summary_report,
+        summary_report=summary_report+"\n\n"+exa_report,
         community_prediction=(
             f"{community_prediction:.2f}" if community_prediction is not None else "N/A"
         ),
