@@ -16,6 +16,8 @@ Today is {today}.
 
 Your task is to analyze the forecasting question and write a series of questions that will be researched by your assistant to understand the historical context, to help figure out reference classes and base rates of this forecast question
 
+Your questions should be in order of most important / most useful to least important / least useful
+
 You should format your answer exactly as below:
 
 Analysis:

@@ -5,12 +5,13 @@ from .utils import (
     read_prompt,
     call_llm,
     run_research,
+    run_research_async,
     get_current_research_questions,
     get_exa_answers,
 )
 
 
-LLM_MODEL = "openai/gpt-5-mini"
+LLM_MODEL = "openai/gpt-5"
 
 
 INSIDE_VIEW_PROMPT = read_prompt("inside_view_prompt.txt")
@@ -29,7 +30,12 @@ async def prepare_inside_view_context(
     resolution_criteria = question_details.get("resolution_criteria", "")
     fine_print = question_details.get("fine_print", "")
 
-    news_context: str = run_research(title)
+    # Pass full details so AskNews relevance filtering can be applied
+    try:
+        # Use async path to allow LLM filtering concurrently
+        news_context: str = await run_research_async(question_details)
+    except Exception:
+        news_context = run_research(question_details)
 
     current_qs_prompt = CURRENT_QUESTIONS_PROMPT.format(
         title=title,
@@ -50,10 +56,10 @@ async def prepare_inside_view_context(
         if ("i am sorry" in q_lower) or ("i'm sorry" in q_lower) or ("i am sorry" in a_lower) or ("i'm sorry" in a_lower):
             i += 1
             continue
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-        print(f"Filtered out {i} questions")
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         filtered_exa_answers_by_q[q] = a
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    print(f"Filtered out {i} questions")
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 
     exa_sections = [f"Question: {q}\nAnswer: {a}" for q, a in filtered_exa_answers_by_q.items()]
     exa_context = "\n\n".join(exa_sections) if exa_sections else "No targeted research found."

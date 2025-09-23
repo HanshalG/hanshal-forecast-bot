@@ -9,7 +9,7 @@ from .utils import (
 )
 
 
-LLM_MODEL = "openai/gpt-5-mini"
+LLM_MODEL = "openai/gpt-5"
 
 
 HISTORICAL_QUESTIONS_PROMPT = read_prompt("historical_questions_prompt.txt")
@@ -61,10 +61,10 @@ async def prepare_outside_view_context(question_details: dict) -> str:
         if ("i am sorry" in q_lower) or ("i'm sorry" in q_lower) or ("i am sorry" in a_lower) or ("i'm sorry" in a_lower):
             i += 1
             continue
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-        print(f"Filtered out {i} questions")
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         filtered_qa_map[q] = a
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    print(f"Filtered out {i} questions")
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 
     for question, answer in filtered_qa_map.items():
         print("question", question)

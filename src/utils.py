@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import time
+import json
 import numpy as np
 from asknews_sdk import AskNewsSDK
 from openai import AsyncOpenAI
@@ -164,7 +165,7 @@ async def call_llm(prompt: str, model: str, temperature: float) -> str:
             raise ValueError("No answer returned from LLM")
         return answer
 
-def call_asknews(question: str) -> str:
+async def call_asknews_async(question_or_details: str | dict) -> str:
     """
     Use the AskNews `news` endpoint to get news context for your query.
     The full API reference can be found here: https://docs.asknews.app/en/reference#get-/v1/news/search
@@ -176,9 +177,17 @@ def call_asknews(question: str) -> str:
         client_id=ASKNEWS_CLIENT_ID, client_secret=ASKNEWS_SECRET, scopes=set(["news"])
     )
 
+    # Derive the text query and optional full question_details for filtering
+    question_details: dict | None = None
+    if isinstance(question_or_details, dict):
+        question_text = question_or_details.get("title") or question_or_details.get("question") or ""
+        question_details = question_or_details
+    else:
+        question_text = str(question_or_details)
+
     # get the latest news related to the query (within the past 48 hours)
     hot_response = ask.news.search_news(
-        query=question,  # your natural language query
+        query=question_text,  # your natural language query
         n_articles=6,  # control the number of articles to include in the context, originally 5
         return_type="both",
         strategy="latest news",  # enforces looking at the latest news only
@@ -188,7 +197,7 @@ def call_asknews(question: str) -> str:
 
     #get context from the "historical" database that contains a news archive going back to 2023
     historical_response = ask.news.search_news(
-        query=question,
+        query=question_text,
         n_articles=10,
         return_type="both",
         strategy="news knowledge",  # looks for relevant news within the past 60 days
@@ -196,42 +205,319 @@ def call_asknews(question: str) -> str:
 
     hot_articles = hot_response.as_dicts
     historical_articles = historical_response.as_dicts
-    formatted_articles = "Here are the relevant news articles:\n\n"
 
+    # Coerce SDK objects to dicts
     if hot_articles:
-        hot_articles = [article.__dict__ for article in hot_articles]
-        hot_articles = sorted(hot_articles, key=lambda x: x["pub_date"], reverse=True)
-
-        for article in hot_articles:
-            pub_date = article["pub_date"].strftime("%B %d, %Y %I:%M %p")
-            formatted_articles += f"**{article['eng_title']}**\n{article['summary']}\nOriginal language: {article['language']}\nPublish date: {pub_date}\nSource:[{article['source_id']}]({article['article_url']})\n\n"
-
+        hot_articles = [a.__dict__ for a in hot_articles]
+    else:
+        hot_articles = []
     if historical_articles:
-        historical_articles = [article.__dict__ for article in historical_articles]
-        historical_articles = sorted(
-            historical_articles, key=lambda x: x["pub_date"], reverse=True
+        historical_articles = [a.__dict__ for a in historical_articles]
+    else:
+        historical_articles = []
+
+    all_articles = hot_articles + historical_articles
+
+    if len(all_articles) == 0:
+        return "Here are the relevant news articles:\n\nNo articles were found.\n\n"
+
+    kept_articles = all_articles
+    if question_details is not None:
+        # Apply LLM-based relevance filter
+        try:
+            import copy as _copy
+            original = [_copy.copy(a) for a in all_articles]
+            kept_articles = await filter_relevant_asknews_articles(question_details, all_articles)
+            # Debugging: show removed articles
+            def _key(ad: dict) -> tuple:
+                return (
+                    ad.get("eng_title") or ad.get("title") or "",
+                    ad.get("article_url") or ad.get("url") or "",
+                )
+            original_keys = {_key(a): a for a in original}
+            kept_keys = {_key(a) for a in kept_articles}
+            removed_items = [v for k, v in original_keys.items() if k not in kept_keys]
+            total_raw = len(original)
+            kept_raw = len(kept_articles)
+            removed_raw = total_raw - kept_raw
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+            print(
+                f"AskNews: total fetched={total_raw}, kept={kept_raw}, removed={removed_raw} (unique removed shown below: {len(removed_items)})"
+            )
+            for i, art in enumerate(removed_items, start=1):
+                title = art.get("eng_title") or art.get("title") or "(no title)"
+                url = art.get("article_url") or art.get("url") or ""
+                print(f"Removed #{i}: {title} | {url}")
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        except Exception as e:
+            print(f"AskNews relevance filtering failed: {e}. Proceeding without filtering.")
+            kept_articles = all_articles
+
+    # Sort kept by pub_date desc if available
+    try:
+        kept_articles = sorted(
+            kept_articles,
+            key=lambda x: x.get("pub_date"),
+            reverse=True,
         )
+    except Exception:
+        pass
 
-        for article in historical_articles:
-            pub_date = article["pub_date"].strftime("%B %d, %Y %I:%M %p")
-            formatted_articles += f"**{article['eng_title']}**\n{article['summary']}\nOriginal language: {article['language']}\nPublish date: {pub_date}\nSource:[{article['source_id']}]({article['article_url']})\n\n"
-
-    if not hot_articles and not historical_articles:
-        formatted_articles += "No articles were found.\n\n"
-        return formatted_articles
+    formatted_articles = "Here are the relevant news articles:\n\n"
+    for article in kept_articles:
+        pub_date = article.get("pub_date")
+        try:
+            pub_date_str = pub_date.strftime("%B %d, %Y %I:%M %p") if hasattr(pub_date, "strftime") else str(pub_date or "")
+        except Exception:
+            pub_date_str = str(pub_date or "")
+        title = article.get("eng_title") or article.get("title") or "(no title)"
+        summary = article.get("summary") or article.get("eng_summary") or ""
+        language = article.get("language") or ""
+        source_id = article.get("source_id") or article.get("source") or ""
+        url = article.get("article_url") or article.get("url") or ""
+        formatted_articles += (
+            f"**{title}**\n{summary}\n"
+            f"Original language: {language}\n"
+            f"Publish date: {pub_date_str}\n"
+            f"Source:[{source_id}]({url})\n\n"
+        )
 
     return formatted_articles
 
-def run_research(question: str) -> str:
+
+def call_asknews(question_or_details: str | dict) -> str:
+    """Synchronous wrapper for AskNews retrieval and filtering.
+
+    If called inside an active event loop, falls back to no-filter mode to avoid loop issues.
+    Prefer using `call_asknews_async` in async contexts.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        # We are running inside an event loop; do a no-filter fallback to avoid deadlocks.
+        # Use the original fetch/format path without applying the async filter.
+        # NOTE: Async paths (e.g., inside_view) should call call_asknews_async instead.
+    except RuntimeError:
+        # No running loop; safe to run the async version
+        return asyncio.run(call_asknews_async(question_or_details))
+
+    # Fallback path (no filtering) when inside loop; replicate minimal original behavior
+    if not ASKNEWS_CLIENT_ID or not ASKNEWS_SECRET:
+        raise ValueError("ASKNEWS_CLIENT_ID and ASKNEWS_SECRET environment variables must be set")
+
+    ask = AskNewsSDK(
+        client_id=ASKNEWS_CLIENT_ID, client_secret=ASKNEWS_SECRET, scopes=set(["news"])
+    )
+
+    if isinstance(question_or_details, dict):
+        question_text = question_or_details.get("title") or question_or_details.get("question") or ""
+    else:
+        question_text = str(question_or_details)
+
+    hot_response = ask.news.search_news(
+        query=question_text,
+        n_articles=6,
+        return_type="both",
+        strategy="latest news",
+    )
+    time.sleep(10)
+    historical_response = ask.news.search_news(
+        query=question_text,
+        n_articles=10,
+        return_type="both",
+        strategy="news knowledge",
+    )
+
+    hot_articles = hot_response.as_dicts or []
+    historical_articles = historical_response.as_dicts or []
+    hot_articles = [a.__dict__ for a in hot_articles]
+    historical_articles = [a.__dict__ for a in historical_articles]
+    kept_articles = hot_articles + historical_articles
+
+    if len(kept_articles) == 0:
+        return "Here are the relevant news articles:\n\nNo articles were found.\n\n"
+
+    try:
+        kept_articles = sorted(
+            kept_articles,
+            key=lambda x: x.get("pub_date"),
+            reverse=True,
+        )
+    except Exception:
+        pass
+
+    # Debug note: we are inside event loop, filter disabled
+    print("AskNews: running in existing event loop; relevance filtering disabled in sync wrapper. Use call_asknews_async for filtering.")
+
+    formatted_articles = "Here are the relevant news articles:\n\n"
+    for article in kept_articles:
+        pub_date = article.get("pub_date")
+        try:
+            pub_date_str = pub_date.strftime("%B %d, %Y %I:%M %p") if hasattr(pub_date, "strftime") else str(pub_date or "")
+        except Exception:
+            pub_date_str = str(pub_date or "")
+        title = article.get("eng_title") or article.get("title") or "(no title)"
+        summary = article.get("summary") or article.get("eng_summary") or ""
+        language = article.get("language") or ""
+        source_id = article.get("source_id") or article.get("source") or ""
+        url = article.get("article_url") or article.get("url") or ""
+        formatted_articles += (
+            f"**{title}**\n{summary}\n"
+            f"Original language: {language}\n"
+            f"Publish date: {pub_date_str}\n"
+            f"Source:[{source_id}]({url})\n\n"
+        )
+
+    return formatted_articles
+
+async def run_research_async(question_or_details) -> str:
+    if ASKNEWS_CLIENT_ID and ASKNEWS_SECRET:
+        research = await call_asknews_async(question_or_details)
+    else:
+        research = "No research done"
+
+    print(f"########################\nResearch Found:\n{research}\n########################")
+    return research
+
+
+def run_research(question_or_details) -> str:
     research = ""
     if ASKNEWS_CLIENT_ID and ASKNEWS_SECRET:
-        research = call_asknews(question)
+        research = call_asknews(question_or_details)
     else:
         research = "No research done"
 
     print(f"########################\nResearch Found:\n{research}\n########################")
 
     return research
+
+
+# -------------------- AskNews relevance filtering --------------------
+async def filter_relevant_asknews_articles(
+    question_details: dict,
+    articles: list,
+    *,
+    model: str = "gpt-5-mini",
+    temperature: float = 0.0,
+) -> list[dict]:
+    """Filter AskNews articles by relevance to a forecasting question using an LLM.
+
+    Args:
+        question_details: Metaculus question dict (expects keys like 'title', 'description', 'resolution_criteria', 'fine_print').
+        articles: A list of AskNews article objects or dicts (from SDK). Mixed types are tolerated.
+        model: LLM model name to use.
+        temperature: LLM temperature.
+
+    Returns:
+        A list of article dicts that are deemed relevant. Each kept article is annotated with
+        a 'relevance_reason' field summarizing why it is helpful for the forecast.
+    """
+
+    def _coerce_article_to_dict(a) -> dict:
+        if isinstance(a, dict):
+            return a
+        try:
+            return dict(getattr(a, "__dict__", {}))
+        except Exception:
+            return {"raw": str(a)}
+
+    def _format_article_context(ad: dict) -> str:
+        title = ad.get("eng_title") or ad.get("title") or ""
+        summary = ad.get("summary") or ad.get("eng_summary") or ""
+        language = ad.get("language") or ""
+        source_id = ad.get("source_id") or ad.get("source") or ""
+        url = ad.get("article_url") or ad.get("url") or ""
+        pub_date = ad.get("pub_date")
+        try:
+            # If AskNews returns a datetime, format it; else fallback to str
+            if hasattr(pub_date, "strftime"):
+                pub_date_str = pub_date.strftime("%Y-%m-%d %H:%M %Z")
+            else:
+                pub_date_str = str(pub_date or "")
+        except Exception:
+            pub_date_str = str(pub_date or "")
+
+        lines = []
+        if title:
+            lines.append(f"Title: {title}")
+        if summary:
+            lines.append(f"Summary: {summary}")
+        if language:
+            lines.append(f"Language: {language}")
+        if pub_date_str:
+            lines.append(f"Published: {pub_date_str}")
+        if source_id:
+            lines.append(f"Source: {source_id}")
+        if url:
+            lines.append(f"URL: {url}")
+        return "\n".join(lines)
+
+    def _build_prompt(q: dict, article_block: str) -> str:
+        title = q.get("title", "")
+        background = q.get("description", "")
+        resolution_criteria = q.get("resolution_criteria", "")
+        fine_print = q.get("fine_print", "")
+
+        return (
+            "You are assisting a probabilistic forecaster.\n"
+            "Given a Metaculus question and a single news article, decide if the article is likely to help update the forecast (i.e., contains evidence relevant to resolution criteria or key drivers).\n\n"
+            "Question:\n"
+            f"- Title: {title}\n"
+            f"- Background: {background}\n"
+            f"- Resolution criteria: {resolution_criteria}\n"
+            f"- Fine print: {fine_print}\n\n"
+            "Article:\n"
+            f"{article_block}\n\n"
+            "Respond with strict JSON only, with this schema: {\n"
+            "  \"relevant\": true|false,\n"
+            "  \"reason\": string (brief, <= 1 sentence)\n"
+            "}."
+        )
+
+    async def _judge(adict: dict) -> tuple[bool, dict]:
+        article_block = _format_article_context(adict)
+        prompt = _build_prompt(question_details, article_block)
+        try:
+            answer = await call_llm(prompt, model, temperature)
+        except Exception:
+            return False, adict
+
+        relevant = False
+        reason = ""
+        try:
+            parsed = None
+            try:
+                parsed = json.loads(answer)
+            except Exception:
+                # Try to extract JSON substring
+                import re as _re
+                m = _re.search(r"\{[\s\S]*\}", answer)
+                if m:
+                    parsed = json.loads(m.group(0))
+            if isinstance(parsed, dict):
+                rv = parsed.get("relevant")
+                if isinstance(rv, bool):
+                    relevant = rv
+                else:
+                    # Fallback: accept strings like "yes"/"no"
+                    if isinstance(rv, str):
+                        relevant = rv.strip().lower() in {"yes", "true"}
+                rs = parsed.get("reason")
+                if isinstance(rs, str):
+                    reason = rs.strip()
+        except Exception:
+            pass
+
+        if relevant:
+            # annotate and keep
+            adict = dict(adict)
+            adict["relevance_reason"] = reason or "Appears helpful for the forecast."
+            return True, adict
+        return False, adict
+
+    coerced: list[dict] = [_coerce_article_to_dict(a) for a in articles]
+    results = await asyncio.gather(*[_judge(a) for a in coerced])
+    kept: list[dict] = [ad for ok, ad in results if ok]
+    return kept
 
 def extract_probability_from_response_as_percentage_not_decimal(
     forecast_text: str,

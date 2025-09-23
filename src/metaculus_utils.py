@@ -298,50 +298,52 @@ def extract_recency_weighted_yes_pct(post: dict) -> float:
 
         aggs = question["aggregations"]
 
-        # Check if recency_weighted exists
-        if "recency_weighted" not in aggs:
-            raise RuntimeError("No recency_weighted aggregations found")
+        # Helper to extract a percentage from a single aggregation block
+        def _extract_from_agg(agg: dict) -> float | None:
+            if not isinstance(agg, dict):
+                return None
 
-        recency_weighted = aggs["recency_weighted"]
+            # Prefer explicit point-in-time objects first
+            for key in ("current", "latest"):
+                node = agg.get(key)
+                if isinstance(node, dict):
+                    vec = node.get("means") or node.get("centers")
+                    # Fallback: binary questions sometimes expose forecast_values [p_no, p_yes]
+                    if vec is None and isinstance(node.get("forecast_values"), (list, tuple)):
+                        fv = node["forecast_values"]
+                        if len(fv) >= 2 and isinstance(fv[1], (int, float)):
+                            return float(fv[1] * 100.0)
 
-        # Ensure recency_weighted is a dict
-        if not isinstance(recency_weighted, dict):
-            raise RuntimeError("recency_weighted data is not in expected format")
+                    if isinstance(vec, (list, tuple)):
+                        if len(vec) == 0 or vec[0] is None:
+                            return None
+                        return float(vec[0] * 100.0)
+                    if isinstance(vec, (int, float)):
+                        return float(vec * 100.0)
 
-        vec = None
-
-        # Try to get current data first
-        if "current" in recency_weighted and recency_weighted["current"]:
-            current = recency_weighted["current"]
-            if isinstance(current, dict):
-                vec = current.get("means") or current.get("centers")
-
-        # Fall back to history if no current data
-        if vec is None and "history" in recency_weighted:
-            history = recency_weighted["history"]
+            # Historical fallback
+            history = agg.get("history")
             if isinstance(history, list) and len(history) > 0:
                 last = history[-1]
                 if isinstance(last, dict):
                     vec = last.get("means") or last.get("centers")
+                    if isinstance(vec, (list, tuple)):
+                        if len(vec) == 0 or vec[0] is None:
+                            return None
+                        return float(vec[0] * 100.0)
+                    if isinstance(vec, (int, float)):
+                        return float(vec * 100.0)
 
-        # Validate vec exists and is valid
-        if vec is None:
-            raise RuntimeError("No valid means or centers data found in current or history")
+            return None
 
-        # Handle empty sequences
-        if isinstance(vec, (list, tuple)) and len(vec) == 0:
-            raise RuntimeError("Community prediction data is empty")
+        # Try multiple aggregation types in order of preference
+        for agg_key in ("recency_weighted", "unweighted", "metaculus_prediction", "single_aggregation"):
+            agg_block = aggs.get(agg_key)
+            pct = _extract_from_agg(agg_block) if agg_block is not None else None
+            if pct is not None:
+                return pct
 
-        # Handle None values in lists
-        if isinstance(vec, (list, tuple)):
-            if vec[0] is None:
-                raise RuntimeError("Community prediction contains None values")
-            return float(vec[0] * 100.0)
-
-        # Handle single values
-        if vec is None:
-            raise RuntimeError("Community prediction value is None")
-        return float(vec * 100.0)
+        raise RuntimeError("No valid community prediction found in aggregations")
 
     except (KeyError, IndexError, TypeError, ValueError) as e:
         raise RuntimeError(f"Failed to extract community prediction: {e}")
