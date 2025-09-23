@@ -1,0 +1,28 @@
+You are currently doing research for CURRENT information on the below forecasting question.
+
+The forecasting question is:
+{title}
+
+Question background:
+{background}
+
+This question's outcome will be determined by the specific criteria below. These criteria have not yet been satisfied:
+{resolution_criteria}
+
+Additional fine-print:
+{fine_print}
+
+Today is {today}.
+
+Your task is to analyze the forecasting question and write a series of present-focused questions that will be researched by your assistant to understand the current state of the world and near-term drivers relevant to this forecast question.
+
+You should format your answer exactly as below:
+
+Analysis:
+{{Briefly note the most relevant current factors and what to investigate.}}
+
+Search questions:
+[Question] {{question}}
+[Question] {{question}}
+
+

@@ -25,29 +25,45 @@ EXA_API_KEY = os.getenv("EXA_API_KEY")
 
 exa = Exa(api_key=EXA_API_KEY)
 
-async def get_exa_research_report(content: str) -> str:
-    """Get research report by asking questions to Exa."""
-    # Get research questions from LLM
-    questions_response = await call_llm(content, "gpt-5-mini", 0.3)
+async def get_historical_research_questions(content: str) -> list[str]:
+    response = await call_llm(content, "gpt-5-mini", 0.3)
 
-    #print("questions_response", questions_response)
-    # Extract questions from response
-    questions = [q.strip() for q in questions_response.split('Question:') if q.strip()]
-    questions = questions[:10] # limit the number of questions to 10
-    # for question in questions:
-    #     print("question", question)
-    #     print("--------------------------------")
+    # Only consider the portion after "Search questions:" to avoid the Analysis section
+    lower_response = response.lower()
+    start_index = lower_response.find("search questions:")
+    tail = response[start_index:] if start_index != -1 else response
 
-    # Get answers for each question
-    reports = []
+    # Extract questions that begin with [Question]
+    pattern = re.compile(r"^\s*\[Question\]\s*(.+?)\s*$", re.MULTILINE)
+    questions = [match.strip() for match in pattern.findall(tail) if match.strip()]
+
+    return questions[:10]
+
+async def get_current_research_questions(content: str) -> list[str]:
+    """Mirror of get_historical_research_questions for current-focused questions.
+
+    The prompt format is identical: an Analysis section, then a "Search questions:" section
+    with lines that start with [Question]. We only parse the questions section.
+    """
+    response = await call_llm(content, "gpt-5-mini", 0.3)
+
+    lower_response = response.lower()
+    start_index = lower_response.find("search questions:")
+    tail = response[start_index:] if start_index != -1 else response
+
+    pattern = re.compile(r"^\s*\[Question\]\s*(.+?)\s*$", re.MULTILINE)
+    questions = [match.strip() for match in pattern.findall(tail) if match.strip()]
+    return questions[:10]
+
+def get_exa_answers(questions: list[str]) -> dict[str, str]:
+    """Return a mapping of question -> formatted Exa answer (with sources)."""
+    answers: dict[str, str] = {}
     for question in questions:
         try:
             response = exa.answer(question)
 
-            # Exa Answer API typically returns an object with `answer` and `citations`
             answer_text = None
             if response is not None:
-                reports.append("\n\n"+question)
                 # Object attribute access
                 answer_text = getattr(response, "answer", None)
                 # Dict-like fallback
@@ -70,13 +86,45 @@ async def get_exa_research_report(content: str) -> str:
                         else:
                             citation_lines.append(f"[{idx}] {url}")
 
+            formatted_answer = ""
             if answer_text:
                 if citation_lines:
-                    reports.append(f"{answer_text}\n\nSources:\n" + "\n".join(citation_lines))
+                    formatted_answer = f"{answer_text}\n\nSources:\n" + "\n".join(citation_lines)
                 else:
-                    reports.append(answer_text)
+                    formatted_answer = answer_text
+            else:
+                if citation_lines:
+                    formatted_answer = "Sources:\n" + "\n".join(citation_lines)
+                else:
+                    formatted_answer = "No answer found."
+
+            answers[question] = formatted_answer
         except Exception as e:
-            reports.append(f"Error fetching Exa answer: {e}")
+            answers[question] = f"Error fetching Exa answer: {e}"
+
+    return answers
+
+async def get_exa_research_report(content: str) -> str:
+    """Get research report by asking questions to Exa."""
+    # Get research questions from LLM
+    questions_response = await call_llm(content, "gpt-5-mini", 0.3)
+
+    #print("questions_response", questions_response)
+    # Extract questions from response
+    questions = [q.strip() for q in questions_response.split('Question:') if q.strip()]
+    questions = questions[:10] # limit the number of questions to 10
+    # for question in questions:
+    #     print("question", question)
+    #     print("--------------------------------")
+
+    # Get answers for each question via helper
+    answers_by_question = get_exa_answers(questions)
+
+    # Build report preserving question order
+    reports = []
+    for q in questions:
+        reports.append("\n\n" + q)
+        reports.append(answers_by_question.get(q, "No answer found."))
 
     result = "\n\n".join(reports) if reports else "No research results found."
     print("Exa Research Report:\n\n", result)
@@ -108,6 +156,7 @@ async def call_llm(prompt: str, model: str, temperature: float) -> str:
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
+            reasoning_effort="high",
             stream=False,
         )
         answer = response.choices[0].message.content

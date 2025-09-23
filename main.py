@@ -59,6 +59,8 @@ ASKNEWS_CLIENT_ID = os.getenv("ASKNEWS_CLIENT_ID")
 ASKNEWS_SECRET = os.getenv("ASKNEWS_SECRET")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+TOURNAMENT_ID = None
+
 # The tournament IDs below can be used for testing your bot.
 Q4_2024_AI_BENCHMARKING_ID = 32506
 Q1_2025_AI_BENCHMARKING_ID = 32627
@@ -106,10 +108,11 @@ llm_rate_limiter = asyncio.Semaphore(CONCURRENT_REQUESTS_LIMIT)
 BINARY_PROMPT_TEMPLATE = read_prompt("binary_question_prompt.txt")
 EXA_RESEARCH_PROMPT_TEMPLATE = read_prompt("exa_research_prompt.txt")
 
-
-
 async def get_binary_gpt_prediction(
-    question_details: dict, num_runs: int, community_prediction: float | None = None
+    question_details: dict,
+    num_runs: int,
+    community_prediction: float | None = None,
+    post_id: int | None = None,
 ) -> tuple[float, str]:
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -124,57 +127,59 @@ async def get_binary_gpt_prediction(
     fine_print = question_details["fine_print"]
     question_type = question_details["type"]
 
-    summary_report = run_research(title)
+    # Prepare contexts once
+    from src.outside_view import generate_outside_view, prepare_outside_view_context  # local import to avoid cycles
+    from src.inside_view import generate_inside_view, prepare_inside_view_context  # local import to avoid cycles
 
-    exa_content = EXA_RESEARCH_PROMPT_TEMPLATE.format(
-        title=title,
-        today=today,
-        timezone=timezone_str,
-        background=background,
-        resolution_criteria=resolution_criteria,
-        fine_print=fine_print,
-    )
+    historical_context = await prepare_outside_view_context(question_details)
+    outside_view_text = await generate_outside_view(question_details, historical_context)
+    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
+    from src.metaculus_utils import get_metaculus_community_prediction_and_count
 
-    exa_report = await get_exa_research_report(exa_content)
+    async def get_inside_probability_and_comment() -> tuple[float, str]:
+        # community prediction and forecaster count for context in inside view
+        try:
+            crowd_pct, n_forecasters = get_metaculus_community_prediction_and_count(post_id) if post_id is not None else (community_prediction, None)
+        except Exception:
+            crowd_pct, n_forecasters = (None, None)
 
-    content = BINARY_PROMPT_TEMPLATE.format(
-        title=title,
-        today=today,
-        timezone=timezone_str,
-        background=background,
-        resolution_criteria=resolution_criteria,
-        fine_print=fine_print,
-        summary_report=summary_report+"\n\n"+exa_report,
-        community_prediction=(
-            f"{community_prediction:.2f}" if community_prediction is not None else "N/A"
-        ),
-    )
-
-    async def get_rationale_and_probability(content: str) -> tuple[float, str]:
-        rationale = await call_llm(content, LLM_MODEL, 0.3)
-
+        inside_view_text = await generate_inside_view(
+            question_details,
+            outside_view_text,
+            community_prediction_pct=crowd_pct,
+            n_forecasters=(n_forecasters or 0),
+            precomputed_news_context=pre_news_ctx,
+            precomputed_exa_context=pre_exa_ctx,
+        )
         probability = extract_probability_from_response_as_percentage_not_decimal(
-            rationale
+            inside_view_text
         )
         comment = (
-            f"Extracted Probability: {probability}%\n\nGPT's Answer: "
-            f"{rationale}\n\n\n"
+            f"Extracted Probability: {probability}%\n\n"
+            f"Inside View Analysis:\n{inside_view_text}\n\n"
         )
         return probability, comment
 
     probability_and_comment_pairs = await asyncio.gather(
-        *[get_rationale_and_probability(content) for _ in range(num_runs)]
+        *[get_inside_probability_and_comment() for _ in range(num_runs)]
     )
     comments = [pair[1] for pair in probability_and_comment_pairs]
     final_comment_sections = [
-        f"## Rationale {i+1}\n{comment}" for i, comment in enumerate(comments)
+        f"## Inside View {i+1}\n{comment}" for i, comment in enumerate(comments)
     ]
     probabilities = [pair[0] for pair in probability_and_comment_pairs]
     median_probability = float(np.median(probabilities)) / 100
 
-    final_comment = f"Median Probability: {median_probability}\n\n" + "\n\n".join(
-        final_comment_sections
+    print("--------------------------------")
+    print("median_probability", median_probability)
+    print("probabilities", probabilities)
+    print("--------------------------------")
+
+    final_comment_preamble = (
+        "# Outside View\n" + outside_view_text + "\n\n" +
+        f"# Median Probability (Inside View): {median_probability}\n\n"
     )
+    final_comment = final_comment_preamble + "\n\n".join(final_comment_sections)
     return median_probability, final_comment
 
 
@@ -457,7 +462,7 @@ async def forecast_individual_question(
         print('community ', community_prediction)
 
         forecast, comment = await get_binary_gpt_prediction(
-            question_details, num_runs_per_question, community_prediction
+            question_details, num_runs_per_question, community_prediction, post_id
         )
     elif question_type == "numeric":
         forecast, comment = await get_numeric_gpt_prediction(
@@ -606,10 +611,13 @@ if __name__ == "__main__":
 
     if args.mode == "example_questions":
         open_question_id_post_id = EXAMPLE_QUESTIONS
+        TOURNAMENT_ID = "example_questions"
     elif args.mode == "minibench":
         open_question_id_post_id = get_open_question_ids_from_tournament(CURRENT_MINIBENCH_ID)
+        TOURNAMENT_ID = CURRENT_MINIBENCH_ID
     elif args.mode == "fall-aib-2025":
         open_question_id_post_id = get_open_question_ids_from_tournament(FALL_2025_AI_BENCHMARKING_ID)
+        TOURNAMENT_ID = FALL_2025_AI_BENCHMARKING_ID
     
     asyncio.run(
         forecast_questions(
