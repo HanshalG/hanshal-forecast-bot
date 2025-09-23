@@ -40,7 +40,22 @@ async def prepare_inside_view_context(
     )
     current_questions = await get_current_research_questions(current_qs_prompt)
     exa_answers_by_q = get_exa_answers(current_questions)
-    exa_sections = [f"Question: {q}\nAnswer: {a}" for q, a in exa_answers_by_q.items()]
+
+    # Filter out any Q/A where the question or answer contains apology text
+    filtered_exa_answers_by_q: Dict[str, str] = {}
+    i=0
+    for q, a in exa_answers_by_q.items():
+        q_lower = q.lower()
+        a_lower = (a or "").lower()
+        if ("i am sorry" in q_lower) or ("i'm sorry" in q_lower) or ("i am sorry" in a_lower) or ("i'm sorry" in a_lower):
+            i += 1
+            continue
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        print(f"Filtered out {i} questions")
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        filtered_exa_answers_by_q[q] = a
+
+    exa_sections = [f"Question: {q}\nAnswer: {a}" for q, a in filtered_exa_answers_by_q.items()]
     exa_context = "\n\n".join(exa_sections) if exa_sections else "No targeted research found."
     return news_context, exa_context
 

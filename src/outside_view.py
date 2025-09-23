@@ -43,6 +43,7 @@ async def prepare_outside_view_context(question_details: dict) -> str:
         fine_print=fine_print,
         today=today,
     )
+
     questions: List[str] = await get_historical_research_questions(hist_questions_content)
 
     for question in questions:
@@ -51,12 +52,26 @@ async def prepare_outside_view_context(question_details: dict) -> str:
 
     qa_map: Dict[str, str] = get_exa_answers(questions)
 
-    for question, answer in qa_map.items():
+    # Filter out any Q/A where the question or answer contains apology text
+    filtered_qa_map: Dict[str, str] = {}
+    i=0
+    for q, a in qa_map.items():
+        q_lower = q.lower()
+        a_lower = (a or "").lower()
+        if ("i am sorry" in q_lower) or ("i'm sorry" in q_lower) or ("i am sorry" in a_lower) or ("i'm sorry" in a_lower):
+            i += 1
+            continue
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        print(f"Filtered out {i} questions")
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        filtered_qa_map[q] = a
+
+    for question, answer in filtered_qa_map.items():
         print("question", question)
         print("answer", answer)
         print("--------------------------------")
 
-    context_block = _format_historical_context(qa_map)
+    context_block = _format_historical_context(filtered_qa_map)
     return context_block
 
 
@@ -109,7 +124,7 @@ if __name__ == "__main__":
 
     # Use the first example question
     example_question_id, example_post_id = EXAMPLE_QUESTIONS[0]
-    post_details = get_post_details(example_post_id)
+    post_details = get_post_details(39581)
     question_details = post_details["question"]
 
     async def _run() -> None:
