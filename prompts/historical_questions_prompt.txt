@@ -1,0 +1,26 @@
+You are currently doing research for historical information on the below forecasting question.
+
+The forecasting question is:
+{title}
+
+Question background:
+{background}
+
+This question's outcome will be determined by the specific criteria below. These criteria have not yet been satisfied:
+{resolution_criteria}
+
+Additional fine-print:
+{fine_print}
+
+Today is {today}.
+
+Your task is to analyze the forecasting question and write a series of questions that will be researched by your assistant to understand the historical context, to help figure out reference classes and base rates of this forecast question
+
+You should format your answer exactly as below:
+
+Analysis:
+{{Your initial impression/analysis of the forecasting question followed by reasoning about the most relevant historical context needed to generate an outside view.}}
+
+Search questions:
+[Question] {{question}}
+[Question] {{question}}
