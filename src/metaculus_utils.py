@@ -152,20 +152,16 @@ def get_post_details(post_id: int) -> dict:
 
 def extract_slug(post_json: dict) -> str:
     """
-    Extract the slug from a post JSON. Tries 'slug' first, then 'question.slug'.
+    Extract the canonical slug for matching across mirrored posts.
+
+    Prefer 'question.slug' (stable across tournaments) and fall back to 'post.slug'.
 
     Raises RuntimeError if no slug can be found.
     """
     if not isinstance(post_json, dict):
         raise RuntimeError("Post data is not a valid dictionary")
 
-    if "slug" in post_json:
-        slug = post_json["slug"]
-        if isinstance(slug, str) and slug.strip():
-            return slug.strip()
-        else:
-            raise RuntimeError("Slug field exists but is empty or invalid")
-
+    # Prefer the question slug – this is consistent across public and tournament mirrors
     if "question" in post_json and isinstance(post_json["question"], dict):
         question = post_json["question"]
         if "slug" in question:
@@ -175,7 +171,52 @@ def extract_slug(post_json: dict) -> str:
             else:
                 raise RuntimeError("Question slug field exists but is empty or invalid")
 
-    raise RuntimeError("No valid slug found in post data (checked both post.slug and question.slug)")
+    # Fall back to the post slug
+    if "slug" in post_json:
+        slug = post_json["slug"]
+        if isinstance(slug, str) and slug.strip():
+            return slug.strip()
+        else:
+            raise RuntimeError("Slug field exists but is empty or invalid")
+
+    raise RuntimeError("No valid slug found in post data (checked both question.slug and post.slug)")
+
+
+def extract_question_slug(post_json: dict) -> str:
+    """
+    Extract only the question.slug. Raises if unavailable.
+    """
+    if not isinstance(post_json, dict):
+        raise RuntimeError("Post data is not a valid dictionary")
+    question = post_json.get("question")
+    if not isinstance(question, dict):
+        raise RuntimeError("Post does not contain a valid question object")
+    slug = question.get("slug")
+    if isinstance(slug, str) and slug.strip():
+        return slug.strip()
+    raise RuntimeError("Question slug field is missing or invalid")
+
+
+def strings_equal_ci(a: str | None, b: str | None) -> bool:
+    """
+    Case-insensitive equality check for strings, safely handling None.
+    """
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    return a.strip().lower() == b.strip().lower()
+
+
+def is_public_post(post_json: dict) -> bool:
+    """
+    Heuristic: a public community post generally has no tournaments attached.
+    """
+    try:
+        tournaments = post_json.get("tournaments")
+        if isinstance(tournaments, list) and len(tournaments) == 0:
+            return True
+        return False
+    except Exception:
+        return False
 
 
 def search_posts_by_slug(slug: str, limit: int = 50) -> list[dict]:
@@ -361,31 +402,50 @@ def get_metaculus_community_prediction_and_count(post_id: int) -> tuple[float, i
     """
     try:
         seed_post = get_post_details(post_id)
-        slug = extract_slug(seed_post)
+        # Target the canonical question slug if possible
+        try:
+            target_slug = extract_question_slug(seed_post)
+        except Exception:
+            target_slug = extract_slug(seed_post)
 
-        summaries = search_posts_by_slug(slug)
+        summaries = search_posts_by_slug(target_slug)
+
+        # Allow matching by either question.slug or title as a fallback
+        seed_title = seed_post.get("title") if isinstance(seed_post, dict) else None
 
         candidates = []
         for summary in summaries:
-            if summary.get("slug") == slug:
-                try:
-                    full_post = get_post_details(summary["id"])
-                    if "question" in full_post and "group_of_questions" not in full_post:
-                        candidates.append(full_post)
-                except Exception:
-                    continue
+            try:
+                full_post = get_post_details(summary["id"])
+            except Exception:
+                continue
+            # Only consider forecastable non-group posts
+            if "question" not in full_post or "group_of_questions" in full_post:
+                continue
+            # Prefer match on question.slug; fallback to title equality if slug differs across mirrors
+            matches_slug = False
+            try:
+                matches_slug = strings_equal_ci(extract_question_slug(full_post), target_slug)
+            except Exception:
+                matches_slug = False
+            matches_title = strings_equal_ci(full_post.get("title"), seed_title)
+            if matches_slug or matches_title:
+                candidates.append(full_post)
 
         if len(candidates) == 0:
             if "question" in seed_post and "group_of_questions" not in seed_post:
                 best_post = seed_post
             else:
                 raise RuntimeError(
-                    f"Found no posts with slug '{slug}' that have questions, and original post is not a valid question post."
+                    f"Found no posts with slug '{target_slug}' that have questions, and original post is not a valid question post."
                 )
         elif len(candidates) == 1:
             best_post = candidates[0]
         else:
-            best_post = max(candidates, key=extract_num_forecasters)
+            # Prefer a different post than the seed (likely the public mirror), then most forecasters
+            non_seed = [p for p in candidates if p.get("id") != post_id]
+            pool = non_seed if len(non_seed) > 0 else candidates
+            best_post = max(pool, key=extract_num_forecasters)
 
         prediction_pct = extract_recency_weighted_yes_pct(best_post)
         n_forecasters = extract_num_forecasters(best_post)
@@ -416,26 +476,35 @@ def get_metaculus_community_prediction(post_id: int) -> float:
     - Missing or invalid community prediction data
     """
     try:
-        # Get the original post details and extract slug
+        # Get the original post details and extract canonical question slug
         seed_post = get_post_details(post_id)
-        slug = extract_slug(seed_post)
+        try:
+            target_slug = extract_question_slug(seed_post)
+        except Exception:
+            target_slug = extract_slug(seed_post)
 
         # Search for posts with matching slug
-        summaries = search_posts_by_slug(slug)
+        summaries = search_posts_by_slug(target_slug)
 
-        # Filter to exact slug matches and get full details
+        # Filter by question.slug or title match and get full details
+        seed_title = seed_post.get("title") if isinstance(seed_post, dict) else None
         candidates = []
         for summary in summaries:
-            if summary.get("slug") == slug:
-                try:
-                    full_post = get_post_details(summary["id"])
-                    # Only include posts that have questions (forecastable) and are not group posts
-                    if "question" in full_post and "group_of_questions" not in full_post:
-                        candidates.append(full_post)
-                    # Skip group posts and non-question posts silently
-                except Exception as e:
-                    # Skip posts that can't be fetched
-                    continue
+            try:
+                full_post = get_post_details(summary["id"])
+            except Exception:
+                continue
+            # Only include posts that have questions (forecastable) and are not group posts
+            if "question" not in full_post or "group_of_questions" in full_post:
+                continue
+            matches_slug = False
+            try:
+                matches_slug = strings_equal_ci(extract_question_slug(full_post), target_slug)
+            except Exception:
+                matches_slug = False
+            matches_title = strings_equal_ci(full_post.get("title"), seed_title)
+            if matches_slug or matches_title:
+                candidates.append(full_post)
 
         # Handle different numbers of candidates
         if len(candidates) == 0:
@@ -443,12 +512,14 @@ def get_metaculus_community_prediction(post_id: int) -> float:
             if "question" in seed_post and "group_of_questions" not in seed_post:
                 best_post = seed_post
             else:
-                raise RuntimeError(f"Found no posts with slug '{slug}' that have questions, and original post is not a valid question post.")
+                raise RuntimeError(f"Found no posts with slug '{target_slug}' that have questions, and original post is not a valid question post.")
         elif len(candidates) == 1:
             best_post = candidates[0]
         else:
-            # Select the post with the most forecasters
-            best_post = max(candidates, key=extract_num_forecasters)
+            # Prefer a different post than the seed (likely the public mirror), then most forecasters
+            non_seed = [p for p in candidates if p.get("id") != post_id]
+            pool = non_seed if len(non_seed) > 0 else candidates
+            best_post = max(pool, key=extract_num_forecasters)
 
         # Extract and return the community prediction
         return extract_recency_weighted_yes_pct(best_post)

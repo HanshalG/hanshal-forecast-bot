@@ -16,6 +16,8 @@ LLM_MODEL = "openai/gpt-5"
 
 INSIDE_VIEW_PROMPT = read_prompt("inside_view_prompt.txt")
 CURRENT_QUESTIONS_PROMPT = read_prompt("current_questions_prompt.txt")
+INSIDE_VIEW_MULTIPLE_CHOICE_PROMPT = read_prompt("inside_view_multiple_choice_prompt.txt")
+INSIDE_VIEW_NUMERIC_PROMPT = read_prompt("inside_view_numeric_prompt.txt")
 
 
 async def prepare_inside_view_context(
@@ -119,6 +121,103 @@ async def generate_inside_view(
 
     inside_view = await call_llm(inside_view_content, LLM_MODEL, 0.3)
     return inside_view
+
+
+async def generate_inside_view_multiple_choice(
+    question_details: dict,
+    outside_view: str,
+    *,
+    precomputed_news_context: str | None = None,
+    precomputed_exa_context: str | None = None,
+) -> str:
+    """Generate an inside view for multiple choice questions.
+
+    Returns the inside view analysis expected to end with a line formatted as:
+    Probabilities: [p1, p2, ..., pN]
+    """
+
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+
+    title = question_details.get("title", "")
+    background = question_details.get("description", "")
+    resolution_criteria = question_details.get("resolution_criteria", "")
+    fine_print = question_details.get("fine_print", "")
+    options = question_details.get("options", [])
+
+    # Contexts
+    if precomputed_news_context is not None and precomputed_exa_context is not None:
+        news_context = precomputed_news_context
+        exa_context = precomputed_exa_context
+    else:
+        news_context, exa_context = await prepare_inside_view_context(question_details, today)
+
+    combined_context = (
+        f"Outside View Analysis\n{outside_view}\n\n"
+        f"News Context\n{news_context}\n\n"
+        f"Targeted Research\n{exa_context}"
+    )
+
+    options_str = ", ".join([str(o) for o in options]) if isinstance(options, (list, tuple)) else str(options)
+
+    content = INSIDE_VIEW_MULTIPLE_CHOICE_PROMPT.format(
+        title=title,
+        options=options_str,
+        resolution_criteria=resolution_criteria,
+        fine_print=fine_print,
+        today=today,
+        context=combined_context,
+    )
+
+    return await call_llm(content, LLM_MODEL, 0.3)
+
+
+async def generate_inside_view_numeric(
+    question_details: dict,
+    outside_view: str,
+    *,
+    units: str,
+    lower_bound_message: str,
+    upper_bound_message: str,
+    hint: str = "",
+    precomputed_news_context: str | None = None,
+    precomputed_exa_context: str | None = None,
+) -> str:
+    """Generate an inside view for numeric/discrete questions that yields percentiles."""
+
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+
+    title = question_details.get("title", "")
+    background = question_details.get("description", "")
+    resolution_criteria = question_details.get("resolution_criteria", "")
+    fine_print = question_details.get("fine_print", "")
+
+    # Contexts
+    if precomputed_news_context is not None and precomputed_exa_context is not None:
+        news_context = precomputed_news_context
+        exa_context = precomputed_exa_context
+    else:
+        news_context, exa_context = await prepare_inside_view_context(question_details, today)
+
+    combined_context = (
+        f"Outside View Analysis\n{outside_view}\n\n"
+        f"News Context\n{news_context}\n\n"
+        f"Targeted Research\n{exa_context}"
+    )
+
+    content = INSIDE_VIEW_NUMERIC_PROMPT.format(
+        title=title,
+        background=background,
+        resolution_criteria=resolution_criteria,
+        fine_print=fine_print,
+        units=units,
+        today=today,
+        lower_bound_message=lower_bound_message,
+        upper_bound_message=upper_bound_message,
+        hint=hint,
+        context=combined_context,
+    )
+
+    return await call_llm(content, LLM_MODEL, 0.3)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,16 @@ import re
 from pathlib import Path
 import argparse
 
+from src.outside_view import (
+    generate_outside_view,
+    prepare_outside_view_context,
+)
+from src.inside_view import (
+    prepare_inside_view_context,
+    generate_inside_view_multiple_choice,
+    generate_inside_view_numeric,
+)
+
 import time
 
 import dotenv
@@ -48,7 +58,7 @@ SUBMIT_PREDICTION = True  # set to True to publish your predictions to Metaculus
 NUM_RUNS_PER_QUESTION = 5  # The median forecast is taken between NUM_RUNS_PER_QUESTION runs
 SKIP_PREVIOUSLY_FORECASTED_QUESTIONS = True
 
-LLM_MODEL = "openai/gpt-5-mini"
+LLM_MODEL = "openai/gpt-5"
 
 # A unique identifier for this process run to correlate events
 RUN_ID = os.getenv("RUN_ID") or f"run-{uuid.uuid4()}"
@@ -74,9 +84,15 @@ CURRENT_METACULUS_CUP_ID = "metaculus-cup"
 AXC_2025_TOURNAMENT_ID = 32564
 AI_2027_TOURNAMENT_ID = "ai-2027"
 
+NUMERIC_EXAMPLE_QUESTIONS = [
+    (39606, 39606),
+]
+MC_EXAMPLE_QUESTIONS = [
+    (39997, 39997),
+]
 # The example questions can be used for testing your bot. (note that question and post id are not always the same)
 EXAMPLE_QUESTIONS = [  # (question_id, post_id)
-    (39724, 39724),
+    (39997, 39997),
     #(578, 578),  # Human Extinction - Binary - https://www.metaculus.com/questions/578/human-extinction-by-2100/
     #(14333, 14333),  # Age of Oldest Human - Numeric - https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/
     #(22427, 22427),  # Number of New Leading AI Labs - Multiple Choice - https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/
@@ -226,27 +242,27 @@ async def get_numeric_gpt_prediction(
     else:
         lower_bound_message = f"The outcome can not be lower than {lower_bound}."
 
-    summary_report = run_research(title)
+    # Prepare contexts once and mirror binary outside/inside flow
+    historical_context = await prepare_outside_view_context(question_details)
+    outside_view_text = await generate_outside_view(question_details, historical_context)
+    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
 
-    content = NUMERIC_PROMPT_TEMPLATE.format(
-        title=title,
-        today=today,
-        background=background,
-        resolution_criteria=resolution_criteria,
-        fine_print=fine_print,
-        summary_report=summary_report,
-        lower_bound_message=lower_bound_message,
-        upper_bound_message=upper_bound_message,
-        units=unit_of_measure,
-    )
-
-    async def ask_llm_to_get_cdf(content: str) -> tuple[list[float], str]:
-        rationale = await call_llm(content, LLM_MODEL, 0.3)
+    async def get_numeric_cdf_and_comment() -> tuple[list[float], str]:
+        rationale = await generate_inside_view_numeric(
+            question_details,
+            outside_view_text,
+            units=unit_of_measure,
+            lower_bound_message=lower_bound_message,
+            upper_bound_message=upper_bound_message,
+            hint="",
+            precomputed_news_context=pre_news_ctx,
+            precomputed_exa_context=pre_exa_ctx,
+        )
         percentile_values = extract_percentiles_from_response(rationale)
 
         comment = (
-            f"Extracted Percentile_values: {percentile_values}\n\nGPT's Answer: "
-            f"{rationale}\n\n\n"
+            f"Extracted Percentile_values: {percentile_values}\n\nInside View Analysis (Numeric): "
+            f"{rationale}\n\n"
         )
 
         cdf = generate_continuous_cdf(
@@ -263,19 +279,21 @@ async def get_numeric_gpt_prediction(
         return cdf, comment
 
     cdf_and_comment_pairs = await asyncio.gather(
-        *[ask_llm_to_get_cdf(content) for _ in range(num_runs)]
+        *[get_numeric_cdf_and_comment() for _ in range(num_runs)]
     )
     comments = [pair[1] for pair in cdf_and_comment_pairs]
     final_comment_sections = [
-        f"## Rationale {i+1}\n{comment}" for i, comment in enumerate(comments)
+        f"## Inside View {i+1}\n{comment}" for i, comment in enumerate(comments)
     ]
     cdfs: list[list[float]] = [pair[0] for pair in cdf_and_comment_pairs]
     all_cdfs = np.array(cdfs)
     median_cdf: list[float] = np.median(all_cdfs, axis=0).tolist()
 
-    final_comment = f"Median CDF: `{str(median_cdf)[:100]}...`\n\n" + "\n\n".join(
-        final_comment_sections
+    final_comment_preamble = (
+        "# Outside View\n" + outside_view_text + "\n\n" +
+        f"# Median CDF length: {len(median_cdf)}\n\n"
     )
+    final_comment = final_comment_preamble + "\n\n".join(final_comment_sections)
     return median_cdf, final_comment
 
 
@@ -365,31 +383,26 @@ async def get_multiple_choice_gpt_prediction(
     question_type = question_details["type"]
     options = question_details["options"]
 
-    summary_report = run_research(title)
+    # Prepare outside/inside contexts (mirror binary)
+    historical_context = await prepare_outside_view_context(question_details)
+    outside_view_text = await generate_outside_view(question_details, historical_context)
+    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
 
-    content = MULTIPLE_CHOICE_PROMPT_TEMPLATE.format(
-        title=title,
-        today=today,
-        background=background,
-        resolution_criteria=resolution_criteria,
-        fine_print=fine_print,
-        summary_report=summary_report,
-        options=options,
-    )
-
-    async def ask_llm_for_multiple_choice_probabilities(
-        content: str,
-    ) -> tuple[dict[str, float], str]:
-        rationale = await call_llm(content, LLM_MODEL, 0.3)
-
+    async def ask_inside_view_mc() -> tuple[dict[str, float], str]:
+        rationale = await generate_inside_view_multiple_choice(
+            question_details,
+            outside_view_text,
+            precomputed_news_context=pre_news_ctx,
+            precomputed_exa_context=pre_exa_ctx,
+        )
 
         option_probabilities = extract_option_probabilities_from_response(
             rationale, options
         )
 
         comment = (
-            f"EXTRACTED_PROBABILITIES: {option_probabilities}\n\nGPT's Answer: "
-            f"{rationale}\n\n\n"
+            f"EXTRACTED_PROBABILITIES: {option_probabilities}\n\nInside View Analysis (Multiple Choice): "
+            f"{rationale}\n\n"
         )
 
         probability_yes_per_category = generate_multiple_choice_forecast(
@@ -398,11 +411,11 @@ async def get_multiple_choice_gpt_prediction(
         return probability_yes_per_category, comment
 
     probability_yes_per_category_and_comment_pairs = await asyncio.gather(
-        *[ask_llm_for_multiple_choice_probabilities(content) for _ in range(num_runs)]
+        *[ask_inside_view_mc() for _ in range(num_runs)]
     )
     comments = [pair[1] for pair in probability_yes_per_category_and_comment_pairs]
     final_comment_sections = [
-        f"## Rationale {i+1}\n{comment}" for i, comment in enumerate(comments)
+        f"## Inside View {i+1}\n{comment}" for i, comment in enumerate(comments)
     ]
     probability_yes_per_category_dicts: list[dict[str, float]] = [
         pair[0] for pair in probability_yes_per_category_and_comment_pairs
@@ -410,13 +423,17 @@ async def get_multiple_choice_gpt_prediction(
     average_probability_yes_per_category: dict[str, float] = {}
     for option in options:
         probabilities_for_current_option: list[float] = [
-            dict[option] for dict in probability_yes_per_category_dicts
+            d[option] for d in probability_yes_per_category_dicts
         ]
         average_probability_yes_per_category[option] = sum(
             probabilities_for_current_option
         ) / len(probabilities_for_current_option)
 
+    final_comment_preamble = (
+        "# Outside View\n" + outside_view_text + "\n\n"
+    )
     final_comment = (
+        final_comment_preamble +
         f"Average Probability Yes Per Category: `{average_probability_yes_per_category}`\n\n"
         + "\n\n".join(final_comment_sections)
     )
