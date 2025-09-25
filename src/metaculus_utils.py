@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 import dotenv
 
@@ -8,6 +9,68 @@ dotenv.load_dotenv()
 # Environment / API constants
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {os.getenv('METACULUS_TOKEN')}"}}
 API_BASE_URL = "https://www.metaculus.com/api"
+
+def _get_json_with_retries(
+    url: str,
+    params: dict | None = None,
+    *,
+    method: str = "GET",
+    retries: int = 3,
+    timeout: float = 10.0,
+) -> dict | list:
+    """Fetch JSON from Metaculus with tolerant parsing and retries.
+
+    - Adds Accept and User-Agent headers
+    - Retries up to `retries` times on network, non-2xx, and JSON decode errors
+    - On retries, prints a short message with attempt number
+    - Attempts a tolerant parse replacing NaN/Infinity tokens
+    - On final failure, raises RuntimeError with status, content-type, and body snippet
+    """
+    auth_token = os.getenv("METACULUS_TOKEN") or ""
+    headers = {
+        "Authorization": f"Token {auth_token}",
+        "Accept": "application/json",
+        "User-Agent": "hanshal-forecast-bot/1.0",
+    }
+
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            resp = requests.request(method, url, headers=headers, params=params, timeout=timeout)
+            if not resp.ok:
+                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+
+            try:
+                return json.loads(resp.content)
+            except json.JSONDecodeError as e:
+                # Try tolerant replacements for NaN/Infinity
+                text = resp.text or ""
+                cleaned = (
+                    text.replace("NaN", "null").replace("Infinity", "null").replace("-Infinity", "null")
+                )
+                try:
+                    return json.loads(cleaned)
+                except json.JSONDecodeError:
+                    ct = resp.headers.get("content-type", "")
+                    snippet = text[:500]
+                    raise RuntimeError(
+                        f"Failed to parse JSON from {url} (ct={ct}): {e}. Body snippet: {snippet}"
+                    )
+
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                # Print retry notice and back off
+                print(f"Metaculus API retry {attempt + 1}/{retries} for {url}: {e}")
+                sleep_seconds = 0.5 * (2 ** attempt)
+                time.sleep(sleep_seconds)
+                continue
+            break
+
+    # Final failure
+    if isinstance(last_err, RuntimeError):
+        raise last_err
+    raise RuntimeError(f"Failed to fetch {url}: {last_err}")
 
 def post_question_comment(post_id: int, comment_text: str) -> None:
     """
@@ -108,11 +171,8 @@ def list_posts_from_tournament(
         "include_description": "true",
     }
     url = f"{API_BASE_URL}/posts/"
-    response = requests.get(url, **AUTH_HEADERS, params=url_qparams)  # type: ignore
-    if not response.ok:
-        raise Exception(response.text)
-    data = json.loads(response.content)
-    return data
+    data = _get_json_with_retries(url, params=url_qparams)
+    return data  # type: ignore[return-value]
 
 
 def get_open_question_ids_from_tournament(tournament_id: int | str | None = None) -> list[tuple[int, int]]:
@@ -139,15 +199,8 @@ def get_post_details(post_id: int) -> dict:
     Get all details about a post from the Metaculus API.
     """
     url = f"{API_BASE_URL}/posts/{post_id}/"
-    # Keep quiet in library; caller can log if desired
-    response = requests.get(
-        url,
-        **AUTH_HEADERS,  # type: ignore
-    )
-    if not response.ok:
-        raise Exception(response.text)
-    details = json.loads(response.content)
-    return details
+    details = _get_json_with_retries(url)
+    return details  # type: ignore[return-value]
 
 
 def extract_slug(post_json: dict) -> str:
@@ -236,15 +289,7 @@ def search_posts_by_slug(slug: str, limit: int = 50) -> list[dict]:
             "limit": limit,
             "order_by": "-activity"
         }
-        response = requests.get(url, **AUTH_HEADERS, params=params)  # type: ignore
-
-        if not response.ok:
-            raise RuntimeError(f"Search API request failed with status {response.status_code}: {response.text}")
-
-        try:
-            data = json.loads(response.content)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse search response as JSON: {e}")
+        data = _get_json_with_retries(url, params=params)
 
         if not isinstance(data, dict):
             raise RuntimeError("Search response is not a valid JSON object")
