@@ -1,4 +1,5 @@
 import datetime
+import asyncio
 from typing import Dict, List
 
 from .utils import (
@@ -8,6 +9,7 @@ from .utils import (
     run_research_async,
     get_current_research_questions,
     get_exa_answers,
+    get_exa_answers_async,
 )
 
 
@@ -32,13 +34,7 @@ async def prepare_inside_view_context(
     resolution_criteria = question_details.get("resolution_criteria", "")
     fine_print = question_details.get("fine_print", "")
 
-    # Pass full details so AskNews relevance filtering can be applied
-    try:
-        # Use async path to allow LLM filtering concurrently
-        news_context: str = await run_research_async(question_details)
-    except Exception:
-        news_context = run_research(question_details)
-
+    # Build prompt for Exa question generation
     current_qs_prompt = CURRENT_QUESTIONS_PROMPT.format(
         title=title,
         background=background,
@@ -46,8 +42,25 @@ async def prepare_inside_view_context(
         fine_print=fine_print,
         today=ts,
     )
-    current_questions = await get_current_research_questions(current_qs_prompt)
-    exa_answers_by_q = get_exa_answers(current_questions)
+
+    # Run AskNews fetch/filter and Exa question generation concurrently
+    try:
+        news_task = run_research_async(question_details)
+    except Exception:
+        # If async path fails immediately, fall back to sync in thread
+        async def _fallback_news() -> str:
+            return run_research(question_details)
+        news_task = _fallback_news()
+
+    questions_task = get_current_research_questions(current_qs_prompt)
+
+    news_context, current_questions = await asyncio.gather(news_task, questions_task)
+
+    # Fetch Exa answers concurrently as well
+    try:
+        exa_answers_by_q = await get_exa_answers_async(current_questions)
+    except Exception:
+        exa_answers_by_q = get_exa_answers(current_questions)
 
     # Filter out any Q/A where the question or answer contains apology text
     filtered_exa_answers_by_q: Dict[str, str] = {}

@@ -17,6 +17,9 @@ You are currently analyzing a forecasting question to generate an outside view p
 The forecasting question is:
 {title}
 
+The forcasting question background is:
+{background}
+
 This question's outcome will be determined by the specific criteria below. These criteria have not yet been satisfied:
 {resolution_criteria}
 

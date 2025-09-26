@@ -6,6 +6,7 @@ from .utils import (
     call_llm,
     get_historical_research_questions,
     get_exa_answers,
+    get_exa_answers_async,
 )
 
 
@@ -47,12 +48,15 @@ async def prepare_outside_view_context(question_details: dict) -> str:
     questions: List[str] = await get_historical_research_questions(hist_questions_content)
 
     for question in questions:
-        print("question", question)
-        print("--------------------------------")
+        print("\nQuestion: ", question)
 
-    qa_map: Dict[str, str] = get_exa_answers(questions)
+    try:
+        qa_map: Dict[str, str] = await get_exa_answers_async(questions)
+    except Exception:
+        print("Error getting Exa answers async, falling back to sync")
+        qa_map = get_exa_answers(questions)
 
-    # Filter out any Q/A where the question or answer contains apology text
+    # Filter out any Q/A where the question or answer contains apology text (i.e answer with no information)
     filtered_qa_map: Dict[str, str] = {}
     i=0
     for q, a in qa_map.items():
@@ -62,13 +66,11 @@ async def prepare_outside_view_context(question_details: dict) -> str:
             i += 1
             continue
         filtered_qa_map[q] = a
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-    print(f"Filtered out {i} questions")
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    print(f"\nFiltered out {i} questions")
 
     for question, answer in filtered_qa_map.items():
-        print("question", question)
-        print("answer", answer)
+        print("\nQuestion: ", question)
+        print("Answer: ", answer)
         print("--------------------------------")
 
     context_block = _format_historical_context(filtered_qa_map)
@@ -100,6 +102,7 @@ async def generate_outside_view(question_details: dict, historical_context: str 
     # Step 4: Build outside view prompt and call LLM
     outside_view_content = OUTSIDE_VIEW_PROMPT.format(
         title=title,
+        background=background,
         resolution_criteria=resolution_criteria,
         fine_print=fine_print,
         today=today,

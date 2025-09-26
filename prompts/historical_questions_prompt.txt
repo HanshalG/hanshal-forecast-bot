@@ -18,6 +18,8 @@ Your task is to analyze the forecasting question and write a series of questions
 
 Your questions should be in order of most important / most useful to least important / least useful
 
+Only return a maximum of 10 questions.
+
 You should format your answer exactly as below:
 
 Analysis:

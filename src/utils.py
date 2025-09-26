@@ -17,6 +17,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 # Constants
 CONCURRENT_REQUESTS_LIMIT = 5
 llm_rate_limiter = asyncio.Semaphore(CONCURRENT_REQUESTS_LIMIT)
+EXA_CONCURRENT_REQUESTS_LIMIT = 5
 
 # Environment variables
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -65,9 +66,7 @@ def get_exa_answers(questions: list[str]) -> dict[str, str]:
 
             answer_text = None
             if response is not None:
-                # Object attribute access
                 answer_text = getattr(response, "answer", None)
-                # Dict-like fallback
                 if answer_text is None and isinstance(response, dict):
                     answer_text = response.get("answer") or response.get("text")
 
@@ -103,6 +102,77 @@ def get_exa_answers(questions: list[str]) -> dict[str, str]:
         except Exception as e:
             answers[question] = f"Error fetching Exa answer: {e}"
 
+    return answers
+
+def _format_exa_answer_from_response(response) -> str:
+    answer_text = None
+    if response is not None:
+        answer_text = getattr(response, "answer", None)
+        if answer_text is None and isinstance(response, dict):
+            answer_text = response.get("answer") or response.get("text")
+
+    citation_lines: list[str] = []
+    citations = getattr(response, "citations", None)
+    if citations and isinstance(citations, list):
+        for idx, c in enumerate(citations, start=1):
+            url = getattr(c, "url", None) if hasattr(c, "url") else (
+                c.get("url") if isinstance(c, dict) else None
+            )
+            title = getattr(c, "title", None) if hasattr(c, "title") else (
+                c.get("title") if isinstance(c, dict) else None
+            )
+            if url:
+                if title:
+                    citation_lines.append(f"[{idx}] {title} - {url}")
+                else:
+                    citation_lines.append(f"[{idx}] {url}")
+
+    formatted_answer = ""
+    if answer_text:
+        if citation_lines:
+            formatted_answer = f"{answer_text}\n\nSources:\n" + "\n".join(citation_lines)
+        else:
+            formatted_answer = answer_text
+    else:
+        if citation_lines:
+            formatted_answer = "Sources:\n" + "\n".join(citation_lines)
+        else:
+            formatted_answer = "No answer found."
+    return formatted_answer
+
+def _get_exa_answer_sync(question: str) -> str:
+    try:
+        response = exa.answer(question)
+        print(f"Received Exa answer: {response[:50]}...")
+        return _format_exa_answer_from_response(response)
+    except Exception as e:
+        return f"Error fetching Exa answer: {e}"
+
+async def get_exa_answers_async(questions: list[str], *, max_concurrency: int = EXA_CONCURRENT_REQUESTS_LIMIT) -> dict[str, str]:
+    """Return mapping of question -> formatted Exa answer using concurrent threads.
+
+    Uses asyncio.to_thread to run the sync Exa client without blocking the event loop.
+    """
+    if not questions:
+        return {}
+
+    print(f"Getting Exa answers async for {len(questions)} questions")
+
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def _worker(q: str) -> tuple[str, str]:
+        async with semaphore:
+            ans = await asyncio.to_thread(_get_exa_answer_sync, q)
+            return q, ans
+
+    results = await asyncio.gather(*[_worker(q) for q in questions], return_exceptions=True)
+    answers: dict[str, str] = {}
+    for item in results:
+        if isinstance(item, Exception):
+            # Should not happen often since we capture per-call errors, but guard anyway
+            continue
+        q, ans = item
+        answers[q] = ans
     return answers
 
 async def get_exa_research_report(content: str) -> str:

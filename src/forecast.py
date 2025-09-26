@@ -30,6 +30,7 @@ from src.metaculus_utils import (
     get_open_question_ids_from_tournament,
     get_post_details,
     get_metaculus_community_prediction,
+    get_metaculus_community_prediction_and_count,
 )
 from src.forecast_logger import log_forecast_event
 
@@ -76,18 +77,16 @@ async def get_binary_prediction(
     community_prediction: float | None = None,
     post_id: int | None = None,
 ) -> Tuple[float, str]:
-
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    try:
-        timezone_str = datetime.datetime.now().astimezone().tzinfo.key  # type: ignore[attr-defined]
-    except Exception:
-        timezone_str = str(datetime.datetime.now().astimezone().tzinfo)
-
+    print(f"Preparing outside view context")
     historical_context = await prepare_outside_view_context(question_details)
-    outside_view_text = await generate_outside_view(question_details, historical_context)
-    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
 
-    from src.metaculus_utils import get_metaculus_community_prediction_and_count
+    print(f"Generating outside view")
+    outside_view_text = await generate_outside_view(question_details, historical_context)
+    print(f"Outside view text: {outside_view_text}")
+
+
+    print(f"Preparing inside view context")
+    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
 
     async def get_inside_probability_and_comment() -> Tuple[float, str]:
         try:
@@ -107,6 +106,8 @@ async def get_binary_prediction(
             precomputed_news_context=pre_news_ctx,
             precomputed_exa_context=pre_exa_ctx,
         )
+
+        print(f"Inside view text: {inside_view_text}")
         probability = extract_probability_from_response_as_percentage_not_decimal(
             inside_view_text
         )
@@ -296,18 +297,22 @@ async def forecast_individual_question(
     title = question_details["title"]
     question_type = question_details["type"]
 
+    print(f"Forecasting question: {title} ({question_type})")
+
     summary_of_forecast = ""
     summary_of_forecast += f"-----------------------------------------------\nQuestion: {title}\n"
     summary_of_forecast += f"URL: https://www.metaculus.com/questions/{post_id}/\n"
 
     if question_type == "multiple_choice":
         options = question_details["options"]
-        summary_of_forecast += f"options: {options}\n"
+        print(f"Options: {options}")
+        summary_of_forecast += f"Options: {options}\n"
 
     if (
         forecast_is_already_made(post_details)
         and skip_previously_forecasted_questions == True
     ):
+        print(f"Skipped: Forecast already made")
         summary_of_forecast += f"Skipped: Forecast already made\n"
         return summary_of_forecast
 
@@ -414,6 +419,7 @@ async def forecast_questions(
         for question_id, post_id in open_question_id_post_id
     ]
     forecast_summaries = await asyncio.gather(*forecast_tasks, return_exceptions=True)
+    
     print("\n", "#" * 100, "\nForecast Summaries\n", "#" * 100)
 
     errors = []
