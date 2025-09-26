@@ -658,7 +658,7 @@ async def filter_relevant_asknews_articles(
     articles: list,
     *,
     model: str = "gpt-5-nano",
-    temperature: float = 1.0,
+    temperature: float = 0.3,
 ) -> list[dict]:
     """Filter AskNews articles by relevance to a forecasting question using an LLM.
 

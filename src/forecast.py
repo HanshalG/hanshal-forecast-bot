@@ -191,7 +191,13 @@ async def get_numeric_prediction(
             attempts += 1
             try:
                 # Generate outside view per run using the precomputed historical context
+                print(f"Generating outside view (attempt {attempts})")
                 outside_view_text = await generate_outside_view(question_details, historical_context)
+                try:
+                    print(f"Outside view (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
+                except Exception:
+                    pass
+                print(f"Generating inside view (attempt {attempts})")
                 rationale = await generate_inside_view_numeric(
                     question_details,
                     outside_view_text,
@@ -202,6 +208,10 @@ async def get_numeric_prediction(
                     precomputed_news_context=pre_news_ctx,
                     precomputed_exa_context=pre_exa_ctx,
                 )
+                try:
+                    print(f"Inside view (attempt {attempts}): \"...{rationale[-200:]}\"")
+                except Exception:
+                    pass
                 percentile_values = extract_percentiles_from_response(rationale)
 
                 comment = (
@@ -264,13 +274,23 @@ async def get_multiple_choice_prediction(
             attempts += 1
             try:
                 # Generate outside view per run using the precomputed historical context
+                print(f"Generating outside view (attempt {attempts})")
                 outside_view_text = await generate_outside_view(question_details, historical_context)
+                try:
+                    print(f"Outside view (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
+                except Exception:
+                    pass
+                print(f"Generating inside view (attempt {attempts})")
                 rationale = await generate_inside_view_multiple_choice(
                     question_details,
                     outside_view_text,
                     precomputed_news_context=pre_news_ctx,
                     precomputed_exa_context=pre_exa_ctx,
                 )
+                try:
+                    print(f"Inside view (attempt {attempts}): \"...{rationale[-200:]}\"")
+                except Exception:
+                    pass
 
                 option_probabilities = extract_option_probabilities_from_response(
                     rationale, options
@@ -303,22 +323,57 @@ async def get_multiple_choice_prediction(
     probability_yes_per_category_dicts: List[Dict[str, float]] = [
         pair[0] for pair in probability_yes_per_category_and_comment_pairs
     ]
-    average_probability_yes_per_category: Dict[str, float] = {}
-    for option in options:
-        probabilities_for_current_option: List[float] = [
-            d[option] for d in probability_yes_per_category_dicts
-        ]
-        average_probability_yes_per_category[option] = sum(
-            probabilities_for_current_option
-        ) / len(probabilities_for_current_option)
 
+    # --- Trimmed Linear Opinion Pool ---
+    # Build matrix of shape (num_runs, num_options) in the provided option order
+    try:
+        run_matrix = np.array(
+            [[float(run_probs.get(opt, 0.0)) for opt in options] for run_probs in probability_yes_per_category_dicts],
+            dtype=float,
+        )
+    except Exception:
+        # Fallback: if something unexpected happens, default to simple mean over available dicts
+        run_matrix = np.array(
+            [[float(run_probs[opt]) for opt in options] for run_probs in probability_yes_per_category_dicts],
+            dtype=float,
+        )
+
+    # Compute baseline mean and per-run L2 distances
+    mean_vector = run_matrix.mean(axis=0)
+    distances = np.linalg.norm(run_matrix - mean_vector, axis=1)
+
+    # Determine how many runs to trim (top tail by distance). Use a modest 20% trim.
+    trim_fraction = 0.2
+    n_runs = run_matrix.shape[0]
+    trim_k = int(np.floor(trim_fraction * n_runs))
+    # Ensure we keep at least 1 run
+    keep_count = max(1, n_runs - trim_k)
+
+    # Keep the runs with smallest distances
+    keep_indices = np.argsort(distances)[:keep_count]
+    kept_matrix = run_matrix[keep_indices]
+
+    # Average the kept runs and renormalize to ensure the probabilities sum to 1.0
+    pooled_vector = kept_matrix.mean(axis=0)
+    pooled_sum = float(pooled_vector.sum())
+    if pooled_sum > 0.0:
+        pooled_vector = pooled_vector / pooled_sum
+    else:
+        # Edge-case fallback: uniform distribution
+        pooled_vector = np.ones_like(pooled_vector) / float(len(pooled_vector) or 1)
+
+    trimmed_probability_yes_per_category: Dict[str, float] = {
+        opt: float(p) for opt, p in zip(options, pooled_vector)
+    }
+
+    trimmed_note = f"(kept {keep_count}/{n_runs} runs; trimmed {n_runs - keep_count})"
     final_comment_preamble = ""
     final_comment = (
         final_comment_preamble
-        + f"Average Probability Yes Per Category: `{average_probability_yes_per_category}`\n\n"
+        + f"Trimmed-mean Probability Yes Per Category {trimmed_note}: `{trimmed_probability_yes_per_category}`\n\n"
         + "\n\n".join(final_comment_sections)
     )
-    return average_probability_yes_per_category, final_comment
+    return trimmed_probability_yes_per_category, final_comment
 
 
 ################### FORECASTING ###################
