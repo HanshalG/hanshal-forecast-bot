@@ -23,9 +23,7 @@ Additional fine-print:
 
 Today is {today}.
 
-Treat the Metadulus community prediction as a high quality prior if there is sufficient number of forecasters
-Metaculus community prediction: {community_prediction}%
-Number of forecasters: {n_forecasters}
+
 
 You have completed an outside view prediction and gathered a collection of current information/news articles relevant to making an inside view prediction.
 

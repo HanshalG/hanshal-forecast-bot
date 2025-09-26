@@ -15,9 +15,45 @@ load_dotenv()
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 # Constants
-CONCURRENT_REQUESTS_LIMIT = 5
+CONCURRENT_REQUESTS_LIMIT = 10
 llm_rate_limiter = asyncio.Semaphore(CONCURRENT_REQUESTS_LIMIT)
-EXA_CONCURRENT_REQUESTS_LIMIT = 5
+EXA_CONCURRENT_REQUESTS_LIMIT = 10
+
+# Simple per-1k token pricing map for rough cost estimates (USD)
+# Prices derived from public references; adjust if your provider differs.
+# Reference units converted from per-1M to per-1k tokens.
+LLM_PRICES_PER_1K: dict[str, dict[str, float]] = {
+    # Keys: model name; Values: {"input": price_per_1k_input_tokens, "output": price_per_1k_output_tokens}
+    "gpt-5": {"input": 0.00125, "output": 0.0100},     # $1.25 / $10 per 1M
+    "gpt-5-mini": {"input": 0.00025, "output": 0.0020}, # $0.25 / $2 per 1M
+    "gpt-5-nano": {"input": 0.00005, "output": 0.0004}, # $0.05 / $0.40 per 1M
+}
+
+# Running total estimated LLM cost (USD)
+LLM_TOTAL_COST_USD: float = 0.0
+llm_cost_lock = asyncio.Lock()
+
+def _canonicalize_model_for_pricing(model_name: str) -> str:
+    """Return a canonical key used in LLM_PRICES_PER_1K.
+
+    Normalizes provider prefixes (e.g., "openai/gpt-5-mini" -> "gpt-5-mini") and
+    collapses model variants to their family when possible (e.g., "gpt-5-xyz" -> "gpt-5").
+    """
+    try:
+        name = str(model_name).strip().lower()
+        # Remove provider prefix if present
+        if "/" in name:
+            name = name.split("/")[-1]
+        # Map by family precedence
+        if name.startswith("gpt-5-nano"):
+            return "gpt-5-nano"
+        if name.startswith("gpt-5-mini"):
+            return "gpt-5-mini"
+        if name.startswith("gpt-5"):
+            return "gpt-5"
+        return str(model_name)
+    except Exception:
+        return str(model_name)
 
 # Environment variables
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -26,6 +62,65 @@ ASKNEWS_SECRET = os.getenv("ASKNEWS_SECRET")
 EXA_API_KEY = os.getenv("EXA_API_KEY")
 
 exa = Exa(api_key=EXA_API_KEY)
+
+def _asknews_fetch_articles_with_retries(
+    ask: AskNewsSDK,
+    *,
+    query: str,
+    n_articles: int,
+    return_type: str,
+    strategy: str,
+    retries: int = 2,
+    base_sleep_seconds: float = 0.5,
+):
+    """Fetch AskNews articles with up to `retries` retries and raise on final failure."""
+    last_err: Exception | None = None
+    attempts = retries + 1
+    for attempt in range(attempts):
+        try:
+            resp = ask.news.search_news(
+                query=query,
+                n_articles=n_articles,
+                return_type=return_type,
+                strategy=strategy,
+            )
+            try:
+                articles = resp.as_dicts  # type: ignore[attr-defined]
+            except Exception:
+                articles = None
+            if not articles:
+                articles = []
+            return articles
+        except Exception as e:
+            last_err = e
+            if attempt < attempts - 1:
+                sleep_s = base_sleep_seconds * (2 ** attempt)
+                print(
+                    f"AskNews retry {attempt + 1}/{retries} for strategy='{strategy}' query='{query[:60]}...': {e}"
+                )
+                time.sleep(sleep_s)
+            else:
+                break
+    raise RuntimeError(f"AskNews failed after {retries} retries for strategy='{strategy}': {last_err}")
+
+def _sanitize_question_text(text: str) -> str:
+    """Remove wrapping curly braces or quotes from a question string.
+
+    Examples:
+      "{What happened?}" -> "What happened?"
+      '"What happened?"' -> "What happened?"
+    """
+    try:
+        s = str(text).strip()
+        # Strip one layer of surrounding braces if present
+        if len(s) >= 2 and s[0] == "{" and s[-1] == "}":
+            s = s[1:-1].strip()
+        # Strip one layer of surrounding matching quotes if present
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+            s = s[1:-1].strip()
+        return s
+    except Exception:
+        return str(text).strip()
 
 async def get_historical_research_questions(content: str) -> list[str]:
     response = await call_llm(content, "gpt-5-mini", 0.3)
@@ -37,8 +132,9 @@ async def get_historical_research_questions(content: str) -> list[str]:
 
     # Extract questions that begin with [Question]
     pattern = re.compile(r"^\s*\[Question\]\s*(.+?)\s*$", re.MULTILINE)
-    questions = [match.strip() for match in pattern.findall(tail) if match.strip()]
-
+    raw_questions = [match.strip() for match in pattern.findall(tail) if match.strip()]
+    questions = [_sanitize_question_text(q) for q in raw_questions]
+    questions = [q for q in questions if q]
     return questions[:10]
 
 async def get_current_research_questions(content: str) -> list[str]:
@@ -54,7 +150,9 @@ async def get_current_research_questions(content: str) -> list[str]:
     tail = response[start_index:] if start_index != -1 else response
 
     pattern = re.compile(r"^\s*\[Question\]\s*(.+?)\s*$", re.MULTILINE)
-    questions = [match.strip() for match in pattern.findall(tail) if match.strip()]
+    raw_questions = [match.strip() for match in pattern.findall(tail) if match.strip()]
+    questions = [_sanitize_question_text(q) for q in raw_questions]
+    questions = [q for q in questions if q]
     return questions[:10]
 
 def get_exa_answers(questions: list[str]) -> dict[str, str]:
@@ -143,8 +241,9 @@ def _format_exa_answer_from_response(response) -> str:
 def _get_exa_answer_sync(question: str) -> str:
     try:
         response = exa.answer(question)
-        print(f"Received Exa answer: {response[:50]}...")
-        return _format_exa_answer_from_response(response)
+        result = _format_exa_answer_from_response(response)
+        print(f"Received Exa answer: {result[:50]}...")
+        return result
     except Exception as e:
         return f"Error fetching Exa answer: {e}"
 
@@ -183,6 +282,8 @@ async def get_exa_research_report(content: str) -> str:
     #print("questions_response", questions_response)
     # Extract questions from response
     questions = [q.strip() for q in questions_response.split('Question:') if q.strip()]
+    questions = [_sanitize_question_text(q) for q in questions]
+    questions = [q for q in questions if q]
     questions = questions[:10] # limit the number of questions to 10
     # for question in questions:
     #     print("question", question)
@@ -212,7 +313,8 @@ def read_prompt(filename: str) -> str:
 
 async def call_llm(prompt: str, model: str, temperature: float) -> str:
     """
-    Makes a completion request to OpenRouter (OpenAI SDK compatible) with concurrent request limiting.
+    Makes a completion request to OpenRouter (OpenAI SDK compatible) with concurrent
+    request limiting and retry/backoff for transient API/JSON decode errors.
     """
     if not OPENROUTER_API_KEY:
         raise ValueError("OPENROUTER_API_KEY environment variable is not set")
@@ -223,17 +325,92 @@ async def call_llm(prompt: str, model: str, temperature: float) -> str:
     )
 
     async with llm_rate_limiter:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            reasoning_effort="high",
-            stream=False,
-        )
-        answer = response.choices[0].message.content
-        if answer is None:
-            raise ValueError("No answer returned from LLM")
-        return answer
+        max_attempts = 3
+        base_sleep = 0.5
+        last_err: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            start_time = time.time()
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    reasoning_effort="high",
+                    stream=False,
+                )
+                elapsed_s = time.time() - start_time
+
+                # Extract token usage if available
+                prompt_tokens = None
+                completion_tokens = None
+                total_tokens = None
+                try:
+                    usage = getattr(response, "usage", None)
+                    if usage is not None:
+                        prompt_tokens = getattr(usage, "prompt_tokens", None) or getattr(usage, "input_tokens", None)
+                        completion_tokens = getattr(usage, "completion_tokens", None) or getattr(usage, "output_tokens", None)
+                        total_tokens = getattr(usage, "total_tokens", None)
+                except Exception:
+                    pass
+
+                # Estimate cost using simple per-1k pricing if configured
+                est_cost_usd = None
+                pricing = LLM_PRICES_PER_1K.get(_canonicalize_model_for_pricing(model))
+                if pricing is not None and (prompt_tokens is not None or completion_tokens is not None):
+                    try:
+                        pt = float(prompt_tokens or 0)
+                        ct = float(completion_tokens or 0)
+                        in_cost = (pt / 1000.0) * float(pricing.get("input", 0.0))
+                        out_cost = (ct / 1000.0) * float(pricing.get("output", 0.0))
+                        est_cost_usd = in_cost + out_cost
+                    except Exception:
+                        est_cost_usd = None
+
+                # Update running total
+                total_after_str = "n/a"
+                if est_cost_usd is not None:
+                    try:
+                        global LLM_TOTAL_COST_USD
+                        async with llm_cost_lock:
+                            LLM_TOTAL_COST_USD += est_cost_usd
+                            total_after_str = f"${LLM_TOTAL_COST_USD:.4f}"
+                    except Exception:
+                        pass
+
+                # Print simple logging line
+                try:
+                    pt_str = str(prompt_tokens) if prompt_tokens is not None else "?"
+                    ct_str = str(completion_tokens) if completion_tokens is not None else "?"
+                    tt_str = str(total_tokens) if total_tokens is not None else "?"
+                    cost_str = (f"${est_cost_usd:.4f}" if est_cost_usd is not None else "n/a")
+                    print(
+                        f"LLM call | model={model} temp={temperature} "
+                        f"tokens: prompt={pt_str} completion={ct_str} total={tt_str} "
+                        f"time={elapsed_s:.2f}s est_cost={cost_str} total_cost={total_after_str}"
+                    )
+                except Exception:
+                    # Best-effort logging; never fail the call due to logging
+                    pass
+
+                answer = response.choices[0].message.content
+                if answer is None:
+                    raise ValueError("No answer returned from LLM")
+                return answer
+            except Exception as e:
+                last_err = e
+                if attempt < max_attempts:
+                    sleep_s = base_sleep * (2 ** (attempt - 1))
+                    print(f"LLM call retry {attempt}/{max_attempts - 1} for model={model}: {e}")
+                    try:
+                        await asyncio.sleep(sleep_s)
+                    except Exception:
+                        pass
+                    continue
+                break
+
+        # Final failure
+        assert last_err is not None
+        raise last_err
 
 async def call_asknews_async(question_or_details: str | dict) -> str:
     """
@@ -255,36 +432,39 @@ async def call_asknews_async(question_or_details: str | dict) -> str:
     else:
         question_text = str(question_or_details)
 
-    # get the latest news related to the query (within the past 48 hours)
-    hot_response = ask.news.search_news(
-        query=question_text,  # your natural language query
-        n_articles=6,  # control the number of articles to include in the context, originally 5
+    # get the latest news related to the query (within the past 48 hours) with retries
+    hot_articles = _asknews_fetch_articles_with_retries(
+        ask,
+        query=question_text,
+        n_articles=6,
         return_type="both",
-        strategy="latest news",  # enforces looking at the latest news only
+        strategy="latest news",
+        retries=2,
     )
 
     time.sleep(10)
 
     #get context from the "historical" database that contains a news archive going back to 2023
-    historical_response = ask.news.search_news(
+    historical_articles = _asknews_fetch_articles_with_retries(
+        ask,
         query=question_text,
         n_articles=10,
         return_type="both",
-        strategy="news knowledge",  # looks for relevant news within the past 60 days
+        strategy="news knowledge",
+        retries=2,
     )
 
-    hot_articles = hot_response.as_dicts
-    historical_articles = historical_response.as_dicts
-
     # Coerce SDK objects to dicts
-    if hot_articles:
-        hot_articles = [a.__dict__ for a in hot_articles]
-    else:
-        hot_articles = []
-    if historical_articles:
-        historical_articles = [a.__dict__ for a in historical_articles]
-    else:
-        historical_articles = []
+    def _coerce_article_to_dict_local(a) -> dict:
+        if isinstance(a, dict):
+            return a
+        try:
+            return dict(getattr(a, "__dict__", {}))
+        except Exception:
+            return {"raw": str(a)}
+
+    hot_articles = [_coerce_article_to_dict_local(a) for a in (hot_articles or [])]
+    historical_articles = [_coerce_article_to_dict_local(a) for a in (historical_articles or [])]
 
     all_articles = hot_articles + historical_articles
 
@@ -334,23 +514,26 @@ async def call_asknews_async(question_or_details: str | dict) -> str:
         pass
 
     formatted_articles = "Here are the relevant news articles:\n\n"
-    for article in kept_articles:
-        pub_date = article.get("pub_date")
-        try:
-            pub_date_str = pub_date.strftime("%B %d, %Y %I:%M %p") if hasattr(pub_date, "strftime") else str(pub_date or "")
-        except Exception:
-            pub_date_str = str(pub_date or "")
-        title = article.get("eng_title") or article.get("title") or "(no title)"
-        summary = article.get("summary") or article.get("eng_summary") or ""
-        language = article.get("language") or ""
-        source_id = article.get("source_id") or article.get("source") or ""
-        url = article.get("article_url") or article.get("url") or ""
-        formatted_articles += (
-            f"**{title}**\n{summary}\n"
-            f"Original language: {language}\n"
-            f"Publish date: {pub_date_str}\n"
-            f"Source:[{source_id}]({url})\n\n"
-        )
+    try:
+        for article in kept_articles:
+            pub_date = article.get("pub_date")
+            try:
+                pub_date_str = pub_date.strftime("%B %d, %Y %I:%M %p") if hasattr(pub_date, "strftime") else str(pub_date or "")
+            except Exception:
+                pub_date_str = str(pub_date or "")
+            title = article.get("eng_title") or article.get("title") or "(no title)"
+            summary = article.get("summary") or article.get("eng_summary") or ""
+            language = article.get("language") or ""
+            source_id = article.get("source_id") or article.get("source") or ""
+            url = article.get("article_url") or article.get("url") or ""
+            formatted_articles += (
+                f"**{title}**\n{summary}\n"
+                f"Original language: {language}\n"
+                f"Publish date: {pub_date_str}\n"
+                f"Source:[{source_id}]({url})\n\n"
+            )
+    except Exception as e:
+        print(f"AskNews formatting failed: {e}")
 
     return formatted_articles
 
@@ -383,24 +566,32 @@ def call_asknews(question_or_details: str | dict) -> str:
     else:
         question_text = str(question_or_details)
 
-    hot_response = ask.news.search_news(
+    hot_articles = _asknews_fetch_articles_with_retries(
+        ask,
         query=question_text,
         n_articles=6,
         return_type="both",
         strategy="latest news",
+        retries=2,
     )
     time.sleep(10)
-    historical_response = ask.news.search_news(
+    historical_articles = _asknews_fetch_articles_with_retries(
+        ask,
         query=question_text,
         n_articles=10,
         return_type="both",
         strategy="news knowledge",
+        retries=2,
     )
-
-    hot_articles = hot_response.as_dicts or []
-    historical_articles = historical_response.as_dicts or []
-    hot_articles = [a.__dict__ for a in hot_articles]
-    historical_articles = [a.__dict__ for a in historical_articles]
+    def _coerce_article_to_dict_local(a) -> dict:
+        if isinstance(a, dict):
+            return a
+        try:
+            return dict(getattr(a, "__dict__", {}))
+        except Exception:
+            return {"raw": str(a)}
+    hot_articles = [_coerce_article_to_dict_local(a) for a in (hot_articles or [])]
+    historical_articles = [_coerce_article_to_dict_local(a) for a in (historical_articles or [])]
     kept_articles = hot_articles + historical_articles
 
     if len(kept_articles) == 0:
@@ -466,8 +657,8 @@ async def filter_relevant_asknews_articles(
     question_details: dict,
     articles: list,
     *,
-    model: str = "gpt-5-mini",
-    temperature: float = 0.0,
+    model: str = "gpt-5-nano",
+    temperature: float = 1.0,
 ) -> list[dict]:
     """Filter AskNews articles by relevance to a forecasting question using an LLM.
 
@@ -592,11 +783,42 @@ async def filter_relevant_asknews_articles(
 def extract_probability_from_response_as_percentage_not_decimal(
     forecast_text: str,
 ) -> float:
-    matches = re.findall(r"(\d+)%", forecast_text)
-    if matches:
-        # Return the last number found before a '%'
-        number = int(matches[-1])
-        number = min(99, max(1, number))  # clamp the number between 1 and 99
+    # 1) Prefer a strict final-line style: "Probability: NN%" (allow optional decimal and %)
+    strict = re.findall(r"^\s*Probability\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*%?", forecast_text, flags=re.IGNORECASE | re.MULTILINE)
+    candidates: list[float] = []
+    for s in strict:
+        try:
+            val = float(s)
+            # If user provided a decimal in [0,1], treat as decimal probability and convert to percent
+            if 0.0 <= val <= 1.0:
+                val *= 100.0
+            candidates.append(val)
+        except Exception:
+            continue
+
+    # 2) Any occurrence of a percent anywhere like "NN%" or "NN.N%"
+    if not candidates:
+        any_pct = re.findall(r"([0-9]+(?:\.[0-9]+)?)\s*%", forecast_text)
+        for s in any_pct:
+            try:
+                val = float(s)
+                candidates.append(val)
+            except Exception:
+                continue
+
+    # 3) Allow textual forms like "NN percent" or "NN pct"
+    if not candidates:
+        textual = re.findall(r"([0-9]+(?:\.[0-9]+)?)\s*(?:percent|pct)\b", forecast_text, flags=re.IGNORECASE)
+        for s in textual:
+            try:
+                val = float(s)
+                candidates.append(val)
+            except Exception:
+                continue
+
+    if candidates:
+        number = int(round(candidates[-1]))
+        number = min(99, max(1, number))  # clamp between 1 and 99
         return number
     else:
         raise ValueError(f"Could not extract prediction from response: {forecast_text}")
@@ -637,6 +859,24 @@ def extract_percentiles_from_response(forecast_text: str) -> dict:
         return percentile_values
 
     percentile_values = extract_percentile_numbers(forecast_text)
+
+    # Fallback: also accept compact forms like "P10: 3.2" or "P95: 100"
+    if len(percentile_values) == 0:
+        alt: dict = {}
+        p_line = re.compile(r"^\s*P(\d{1,2}|100)\s*:\s*(-?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*$", re.IGNORECASE)
+        for line in forecast_text.split("\n"):
+            m = p_line.match(line)
+            if not m:
+                continue
+            try:
+                p_key = int(m.group(1))
+                val_str = m.group(2).replace(",", "")
+                val = float(val_str) if "." in val_str else int(val_str)
+                alt[p_key] = val
+            except Exception:
+                continue
+        if len(alt) > 0:
+            percentile_values = alt
 
     if len(percentile_values) > 0:
         return percentile_values
@@ -819,7 +1059,14 @@ def extract_option_probabilities_from_response(forecast_text: str, options) -> f
 
         return results
 
-    option_probabilities = extract_option_probabilities(forecast_text)
+    # Prefer a bracketed list if present: "Probabilities: [x, y, ...]"
+    bracket_match = re.findall(r"Probabilities\s*:\s*\[([^\]]+)\]", forecast_text, flags=re.IGNORECASE)
+    option_probabilities = []
+    if bracket_match:
+        nums = re.findall(r"-?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?", bracket_match[-1])
+        option_probabilities = [float(n.replace(",", "")) for n in nums]
+    else:
+        option_probabilities = extract_option_probabilities(forecast_text)
 
     NUM_OPTIONS = len(options)
 

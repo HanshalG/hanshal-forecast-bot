@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 import datetime
 import os
 import uuid
@@ -29,8 +30,6 @@ from src.metaculus_utils import (
     create_forecast_payload,
     get_open_question_ids_from_tournament,
     get_post_details,
-    get_metaculus_community_prediction,
-    get_metaculus_community_prediction_and_count,
 )
 from src.forecast_logger import log_forecast_event
 
@@ -74,63 +73,79 @@ def generate_multiple_choice_forecast(options, option_probabilities) -> dict:
 async def get_binary_prediction(
     question_details: dict,
     num_runs: int,
-    community_prediction: float | None = None,
-    post_id: int | None = None,
 ) -> Tuple[float, str]:
     print(f"Preparing outside view context")
     historical_context = await prepare_outside_view_context(question_details)
 
-    print(f"Generating outside view")
-    outside_view_text = await generate_outside_view(question_details, historical_context)
-    print(f"Outside view text: {outside_view_text}")
-
-
+    # Prepare inside view context once
     print(f"Preparing inside view context")
     pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
 
-    async def get_inside_probability_and_comment() -> Tuple[float, str]:
-        try:
-            crowd_pct, n_forecasters = (
-                get_metaculus_community_prediction_and_count(post_id)
-                if post_id is not None
-                else (community_prediction, None)
-            )
-        except Exception:
-            crowd_pct, n_forecasters = (None, None)
+    async def get_inside_probability_and_comment(n) -> Tuple[float, str]:
+        # Per-run retry logic (2 retries -> up to 3 attempts total)
+        attempts = 0
+        last_err: Exception | None = None
+        while attempts < 3:
+            attempts += 1
+            try:
+                # Generate outside view per run using the precomputed historical context
+                print(f"Generating outside view {n+1} (attempt {attempts})")
+                outside_view_text = await generate_outside_view(question_details, historical_context)
+                print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
 
-        inside_view_text = await generate_inside_view(
-            question_details,
-            outside_view_text,
-            community_prediction_pct=crowd_pct,
-            n_forecasters=(n_forecasters or 0),
-            precomputed_news_context=pre_news_ctx,
-            precomputed_exa_context=pre_exa_ctx,
-        )
+                print(f"Generating inside view {n+1} (attempt {attempts})")
+                inside_view_text = await generate_inside_view(
+                    question_details,
+                    outside_view_text,
+                    precomputed_news_context=pre_news_ctx,
+                    precomputed_exa_context=pre_exa_ctx,
+                )
+                print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text[-200:]}\"")
 
-        print(f"Inside view text: {inside_view_text}")
-        probability = extract_probability_from_response_as_percentage_not_decimal(
-            inside_view_text
-        )
-        comment = (
-            f"Extracted Probability: {probability}%\n\n"
-            f"Inside View Analysis:\n{inside_view_text}\n\n"
-        )
-        return probability, comment
+                probability = extract_probability_from_response_as_percentage_not_decimal(
+                    inside_view_text
+                )
+                comment = (
+                    f"## Outside View\n{outside_view_text}\n\n"
+                    f"## Inside View Analysis\n{inside_view_text}\n\n"
+                    f"Extracted Probability: {probability}%\n\n"
+                )
+                return probability, comment
+            except Exception as e:
+                print(f"Error in inside-view run {n+1} (attempt {attempts}): {e}")
+                last_err = e
+                # small backoff before retrying
+                await asyncio.sleep(0.5 * attempts)
+        # After retries, re-raise last error
+        raise last_err if last_err is not None else RuntimeError("Unknown error in inside-view run")
 
-    probability_and_comment_pairs = await asyncio.gather(
-        *[get_inside_probability_and_comment() for _ in range(num_runs)]
+    # Run inside-view tasks; tolerate per-run failures
+    results = await asyncio.gather(
+        *[get_inside_probability_and_comment(n) for n in range(num_runs)],
+        return_exceptions=True,
     )
-    comments = [pair[1] for pair in probability_and_comment_pairs]
-    final_comment_sections = [
-        f"## Inside View {i+1}\n{comment}" for i, comment in enumerate(comments)
-    ]
-    probabilities = [pair[0] for pair in probability_and_comment_pairs]
+    successes: list[tuple[float, str]] = [r for r in results if not isinstance(r, Exception)]  # type: ignore[list-item]
+    if len(successes) == 0:
+        # If all runs failed, raise the first error
+        first_err = next((r for r in results if isinstance(r, Exception)), RuntimeError("All inside-view runs failed"))
+        raise first_err  # type: ignore[misc]
+
+    comments = [pair[1] for pair in successes]
+    final_comment_sections = [f"### Run {i+1}\n{comment}" for i, comment in enumerate(comments)]
+    probabilities = [pair[0] for pair in successes]
+
+    #sort probabilities by descending order
+    probabilities.sort(reverse=True)
+
+    print("Probabilities: ")
+    for p in probabilities:
+        print(p)
+
     median_probability = float(np.median(probabilities)) / 100
 
-    final_comment_preamble = (
-        "# Outside View\n" + outside_view_text + "\n\n"
-        f"# Median Probability (Inside View): {median_probability}\n\n"
-    )
+    print("Median probability: ", median_probability)
+
+    final_comment_preamble = (f"# Median Probability (Inside View): {median_probability}\n\n")
     final_comment = final_comment_preamble + "\n\n".join(final_comment_sections)
     return median_probability, final_comment
 
@@ -166,55 +181,66 @@ async def get_numeric_prediction(
         lower_bound_message = f"The outcome can not be lower than {lower_bound}."
 
     historical_context = await prepare_outside_view_context(question_details)
-    outside_view_text = await generate_outside_view(question_details, historical_context)
+    # Prepare inside view context once
     pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
 
     async def get_numeric_cdf_and_comment() -> Tuple[List[float], str]:
-        rationale = await generate_inside_view_numeric(
-            question_details,
-            outside_view_text,
-            units=unit_of_measure,
-            lower_bound_message=lower_bound_message,
-            upper_bound_message=upper_bound_message,
-            hint="",
-            precomputed_news_context=pre_news_ctx,
-            precomputed_exa_context=pre_exa_ctx,
-        )
-        percentile_values = extract_percentiles_from_response(rationale)
+        attempts = 0
+        last_err: Exception | None = None
+        while attempts < 3:
+            attempts += 1
+            try:
+                # Generate outside view per run using the precomputed historical context
+                outside_view_text = await generate_outside_view(question_details, historical_context)
+                rationale = await generate_inside_view_numeric(
+                    question_details,
+                    outside_view_text,
+                    units=unit_of_measure,
+                    lower_bound_message=lower_bound_message,
+                    upper_bound_message=upper_bound_message,
+                    hint="",
+                    precomputed_news_context=pre_news_ctx,
+                    precomputed_exa_context=pre_exa_ctx,
+                )
+                percentile_values = extract_percentiles_from_response(rationale)
 
-        comment = (
-            f"Extracted Percentile_values: {percentile_values}\n\nInside View Analysis (Numeric): "
-            f"{rationale}\n\n"
-        )
+                comment = (
+                    f"## Outside View\n{outside_view_text}\n\n"
+                    f"## Inside View Analysis (Numeric)\n{rationale}\n\n"
+                    f"Extracted Percentile_values: {percentile_values}\n\n"
+                )
 
-        cdf = generate_continuous_cdf(
-            percentile_values,
-            question_type,
-            open_upper_bound,
-            open_lower_bound,
-            upper_bound,
-            lower_bound,
-            zero_point,
-            cdf_size,
-        )
+                cdf = generate_continuous_cdf(
+                    percentile_values,
+                    question_type,
+                    open_upper_bound,
+                    open_lower_bound,
+                    upper_bound,
+                    lower_bound,
+                    zero_point,
+                    cdf_size,
+                )
 
-        return cdf, comment
+                return cdf, comment
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(0.5 * attempts)
+        raise last_err if last_err is not None else RuntimeError("Unknown error in numeric inside-view run")
 
-    cdf_and_comment_pairs = await asyncio.gather(
-        *[get_numeric_cdf_and_comment() for _ in range(num_runs)]
+    cdf_results = await asyncio.gather(
+        *[get_numeric_cdf_and_comment() for _ in range(num_runs)], return_exceptions=True
     )
+    cdf_and_comment_pairs = [r for r in cdf_results if not isinstance(r, Exception)]  # type: ignore[list-item]
+    if len(cdf_and_comment_pairs) == 0:
+        first_err = next((r for r in cdf_results if isinstance(r, Exception)), RuntimeError("All numeric runs failed"))
+        raise first_err  # type: ignore[misc]
     comments = [pair[1] for pair in cdf_and_comment_pairs]
-    final_comment_sections = [
-        f"## Inside View {i+1}\n{comment}" for i, comment in enumerate(comments)
-    ]
+    final_comment_sections = [f"### Run {i+1}\n{comment}" for i, comment in enumerate(comments)]
     cdfs: List[List[float]] = [pair[0] for pair in cdf_and_comment_pairs]
     all_cdfs = np.array(cdfs)
     median_cdf: List[float] = np.median(all_cdfs, axis=0).tolist()
 
-    final_comment_preamble = (
-        "# Outside View\n" + outside_view_text + "\n\n"
-        f"# Median CDF length: {len(median_cdf)}\n\n"
-    )
+    final_comment_preamble = (f"# Median CDF length: {len(median_cdf)}\n\n")
     final_comment = final_comment_preamble + "\n\n".join(final_comment_sections)
     return median_cdf, final_comment
 
@@ -228,38 +254,52 @@ async def get_multiple_choice_prediction(
     options = question_details["options"]
 
     historical_context = await prepare_outside_view_context(question_details)
-    outside_view_text = await generate_outside_view(question_details, historical_context)
+    # Prepare inside view context once
     pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
 
     async def ask_inside_view_mc() -> Tuple[Dict[str, float], str]:
-        rationale = await generate_inside_view_multiple_choice(
-            question_details,
-            outside_view_text,
-            precomputed_news_context=pre_news_ctx,
-            precomputed_exa_context=pre_exa_ctx,
-        )
+        attempts = 0
+        last_err: Exception | None = None
+        while attempts < 3:
+            attempts += 1
+            try:
+                # Generate outside view per run using the precomputed historical context
+                outside_view_text = await generate_outside_view(question_details, historical_context)
+                rationale = await generate_inside_view_multiple_choice(
+                    question_details,
+                    outside_view_text,
+                    precomputed_news_context=pre_news_ctx,
+                    precomputed_exa_context=pre_exa_ctx,
+                )
 
-        option_probabilities = extract_option_probabilities_from_response(
-            rationale, options
-        )
+                option_probabilities = extract_option_probabilities_from_response(
+                    rationale, options
+                )
 
-        comment = (
-            f"EXTRACTED_PROBABILITIES: {option_probabilities}\n\nInside View Analysis (Multiple Choice): "
-            f"{rationale}\n\n"
-        )
+                comment = (
+                    f"## Outside View\n{outside_view_text}\n\n"
+                    f"## Inside View Analysis (Multiple Choice)\n{rationale}\n\n"
+                    f"EXTRACTED_PROBABILITIES: {option_probabilities}\n\n"
+                )
 
-        probability_yes_per_category = generate_multiple_choice_forecast(
-            options, option_probabilities
-        )
-        return probability_yes_per_category, comment
+                probability_yes_per_category = generate_multiple_choice_forecast(
+                    options, option_probabilities
+                )
+                return probability_yes_per_category, comment
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(0.5 * attempts)
+        raise last_err if last_err is not None else RuntimeError("Unknown error in MC inside-view run")
 
-    probability_yes_per_category_and_comment_pairs = await asyncio.gather(
-        *[ask_inside_view_mc() for _ in range(num_runs)]
+    mc_results = await asyncio.gather(
+        *[ask_inside_view_mc() for _ in range(num_runs)], return_exceptions=True
     )
+    probability_yes_per_category_and_comment_pairs = [r for r in mc_results if not isinstance(r, Exception)]  # type: ignore[list-item]
+    if len(probability_yes_per_category_and_comment_pairs) == 0:
+        first_err = next((r for r in mc_results if isinstance(r, Exception)), RuntimeError("All MC runs failed"))
+        raise first_err  # type: ignore[misc]
     comments = [pair[1] for pair in probability_yes_per_category_and_comment_pairs]
-    final_comment_sections = [
-        f"## Inside View {i+1}\n{comment}" for i, comment in enumerate(comments)
-    ]
+    final_comment_sections = [f"### Run {i+1}\n{comment}" for i, comment in enumerate(comments)]
     probability_yes_per_category_dicts: List[Dict[str, float]] = [
         pair[0] for pair in probability_yes_per_category_and_comment_pairs
     ]
@@ -272,9 +312,7 @@ async def get_multiple_choice_prediction(
             probabilities_for_current_option
         ) / len(probabilities_for_current_option)
 
-    final_comment_preamble = (
-        "# Outside View\n" + outside_view_text + "\n\n"
-    )
+    final_comment_preamble = ""
     final_comment = (
         final_comment_preamble
         + f"Average Probability Yes Per Category: `{average_probability_yes_per_category}`\n\n"
@@ -317,13 +355,8 @@ async def forecast_individual_question(
         return summary_of_forecast
 
     if question_type == "binary":
-        try:
-            community_prediction = get_metaculus_community_prediction(post_id)
-        except Exception:
-            community_prediction = None
-
         forecast, comment = await get_binary_prediction(
-            question_details, num_runs_per_question, community_prediction, post_id
+            question_details, num_runs_per_question
         )
     elif question_type == "numeric":
         forecast, comment = await get_numeric_prediction(
@@ -342,7 +375,7 @@ async def forecast_individual_question(
 
     print(f"-----------------------------------------------\nPost {post_id} Question {question_id}:\n")
     print(f"Forecast for post {post_id} (question {question_id}):\n{forecast}")
-    print(f"Comment for post {post_id} (question {question_id}):\n{comment}")
+    #print(f"Comment for post {post_id} (question {question_id}):\n{comment}")
 
     # Log forecast event (pre-submission)
     try:
@@ -355,7 +388,6 @@ async def forecast_individual_question(
             "question_type": question_type,
             "model": LLM_MODEL,
             "num_runs": num_runs_per_question,
-            "community_prediction": community_prediction if question_type == "binary" else None,
             "forecast": forecast,
             "comment": comment,
             "submit_attempted": bool(submit_prediction),
@@ -389,7 +421,6 @@ async def forecast_individual_question(
                 "question_type": question_type,
                 "model": LLM_MODEL,
                 "num_runs": num_runs_per_question,
-                "community_prediction": community_prediction if question_type == "binary" else None,
                 "forecast": forecast,
                 "comment": comment,
                 "submit_attempted": True,
@@ -428,9 +459,20 @@ async def forecast_questions(
     ):
         question_id, post_id = question_id_post_id
         if isinstance(forecast_summary, Exception):
+            # Print concise error header
             print(
                 f"-----------------------------------------------\nPost {post_id} Question {question_id}:\nError: {forecast_summary.__class__.__name__} {forecast_summary}\nURL: https://www.metaculus.com/questions/{post_id}/\n"
             )
+            # Also print full traceback for debugging
+            try:
+                trace_str = "".join(
+                    traceback.format_exception(
+                        type(forecast_summary), forecast_summary, forecast_summary.__traceback__
+                    )
+                )
+                print(trace_str)
+            except Exception:
+                trace_str = None
             errors.append(forecast_summary)
             # Log error event
             try:
@@ -443,12 +485,12 @@ async def forecast_questions(
                     "question_type": None,
                     "model": LLM_MODEL,
                     "num_runs": num_runs_per_question,
-                    "community_prediction": None,
                     "forecast": None,
                     "comment": None,
                     "submit_attempted": bool(submit_prediction),
                     "submitted": False,
                     "error": f"{forecast_summary.__class__.__name__}: {forecast_summary}",
+                    **({"error_trace": trace_str} if trace_str else {}),
                 }
                 log_forecast_event(error_event)
             except Exception as e:

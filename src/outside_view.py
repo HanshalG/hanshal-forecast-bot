@@ -48,7 +48,7 @@ async def prepare_outside_view_context(question_details: dict) -> str:
     questions: List[str] = await get_historical_research_questions(hist_questions_content)
 
     for question in questions:
-        print("\nQuestion: ", question)
+        print("Question: ", question[:100], "...")
 
     try:
         qa_map: Dict[str, str] = await get_exa_answers_async(questions)

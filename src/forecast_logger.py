@@ -52,7 +52,7 @@ def _format_plaintext(event: Dict[str, Any]) -> str:
     model = event.get("model") or ""
     submitted = bool(event.get("submitted", False))
     submit_attempted = bool(event.get("submit_attempted", False))
-    community = event.get("community_prediction")
+    community = None
     forecast = event.get("forecast")
     error = event.get("error")
 
@@ -86,7 +86,7 @@ def _format_plaintext(event: Dict[str, Any]) -> str:
     lines.append(f"Question: {title}")
     lines.append(f"IDs: question_id={qid} post_id={pid}")
     lines.append(f"Type: {qtype}  Model: {model}")
-    lines.append(f"Community: {_format_percent(community)}  Submitted: {submitted}  Attempted: {submit_attempted}")
+    lines.append(f"Submitted: {submitted}  Attempted: {submit_attempted}")
     lines.append(f"Forecast: {forecast_str}")
 
     comment = event.get("comment_preview") or event.get("comment")
