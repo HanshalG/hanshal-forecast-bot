@@ -109,7 +109,7 @@ async def generate_outside_view(question_details: dict, historical_context: str 
         context=context_block,
     )
 
-    outside_view = await call_llm(outside_view_content, LLM_MODEL, 0.3)
+    outside_view = await call_llm(outside_view_content, LLM_MODEL, 0.3, "high")
     return outside_view
 
 if __name__ == "__main__":

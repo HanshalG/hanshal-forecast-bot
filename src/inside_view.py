@@ -12,9 +12,7 @@ from .utils import (
     get_exa_answers_async,
 )
 
-
 LLM_MODEL = "openai/gpt-5"
-
 
 INSIDE_VIEW_PROMPT = read_prompt("inside_view_prompt.txt")
 CURRENT_QUESTIONS_PROMPT = read_prompt("current_questions_prompt.txt")
@@ -144,7 +142,7 @@ async def generate_inside_view(
         context=combined_context,
     )
 
-    inside_view = await call_llm(inside_view_content, LLM_MODEL, 0.3)
+    inside_view = await call_llm(inside_view_content, LLM_MODEL, 0.3, "high")
     return inside_view
 
 
@@ -193,7 +191,7 @@ async def generate_inside_view_multiple_choice(
         context=combined_context,
     )
 
-    return await call_llm(content, LLM_MODEL, 0.3)
+    return await call_llm(content, LLM_MODEL, 0.3, "high")
 
 
 async def generate_inside_view_numeric(
@@ -242,7 +240,7 @@ async def generate_inside_view_numeric(
         context=combined_context,
     )
 
-    return await call_llm(content, LLM_MODEL, 0.3)
+    return await call_llm(content, LLM_MODEL, 0.3, "high")
 
 
 if __name__ == "__main__":

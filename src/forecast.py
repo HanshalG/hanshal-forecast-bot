@@ -22,6 +22,8 @@ from src.utils import (
     extract_percentiles_from_response,
     generate_continuous_cdf,
     extract_option_probabilities_from_response,
+    read_prompt,
+    call_llm,
 )
 from src.metaculus_utils import (
     forecast_is_already_made,
@@ -81,7 +83,7 @@ async def get_binary_prediction(
     print(f"Preparing inside view context")
     pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
 
-    async def get_inside_probability_and_comment(n) -> Tuple[float, str]:
+    async def get_inside_probability_and_comment(n) -> Tuple[float, str, str]:
         # Per-run retry logic (2 retries -> up to 3 attempts total)
         attempts = 0
         last_err: Exception | None = None
@@ -110,7 +112,7 @@ async def get_binary_prediction(
                     f"## Inside View Analysis\n{inside_view_text}\n\n"
                     f"Extracted Probability: {probability}%\n\n"
                 )
-                return probability, comment
+                return probability, comment, inside_view_text
             except Exception as e:
                 print(f"Error in inside-view run {n+1} (attempt {attempts}): {e}")
                 last_err = e
@@ -124,7 +126,7 @@ async def get_binary_prediction(
         *[get_inside_probability_and_comment(n) for n in range(num_runs)],
         return_exceptions=True,
     )
-    successes: list[tuple[float, str]] = [r for r in results if not isinstance(r, Exception)]  # type: ignore[list-item]
+    successes: list[tuple[float, str, str]] = [r for r in results if not isinstance(r, Exception)]  # type: ignore[list-item]
     if len(successes) == 0:
         # If all runs failed, raise the first error
         first_err = next((r for r in results if isinstance(r, Exception)), RuntimeError("All inside-view runs failed"))
@@ -133,6 +135,7 @@ async def get_binary_prediction(
     comments = [pair[1] for pair in successes]
     final_comment_sections = [f"### Run {i+1}\n{comment}" for i, comment in enumerate(comments)]
     probabilities = [pair[0] for pair in successes]
+    inside_views = [pair[2] for pair in successes]
 
     #sort probabilities by descending order
     probabilities.sort(reverse=True)
@@ -145,8 +148,43 @@ async def get_binary_prediction(
 
     print("Median probability: ", median_probability)
 
-    final_comment_preamble = (f"# Median Probability (Inside View): {median_probability}\n\n")
-    final_comment = final_comment_preamble + "\n\n".join(final_comment_sections)
+    # Select the inside-view analysis whose probability is closest to the median
+    try:
+        probs_array = np.array(probabilities, dtype=float)
+        target_pct = median_probability * 100.0
+        closest_index = int(np.argmin(np.abs(probs_array - target_pct)))
+        median_inside_view_analysis = inside_views[closest_index]
+    except Exception:
+        # Fallback: pick the middle element
+        median_inside_view_analysis = inside_views[len(inside_views) // 2]
+
+    # Summarize the median analysis using gpt-5-nano with a reusable prompt
+    summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
+    title = question_details.get("title", "")
+    question_type = question_details.get("type", "binary")
+    resolution_criteria = question_details.get("resolution_criteria", "")
+    fine_print = question_details.get("fine_print", "")
+
+    summary_prompt = summary_prompt_template.format(
+        title=title,
+        question_type=question_type,
+        resolution_criteria=resolution_criteria,
+        fine_print=fine_print,
+        analysis=median_inside_view_analysis,
+    )
+
+    summary_comment = None
+    try:
+        summary_comment = await call_llm(summary_prompt, "openai/gpt-5-nano", 0.3, "medium")
+    except Exception as e:
+        print(f"Summary generation failed: {e}. Falling back to full run comments.")
+
+    if isinstance(summary_comment, str):
+        final_comment = summary_comment.strip()
+    else:
+        # Fallback to the original detailed comments if summarization fails
+        final_comment = "\n\n".join(final_comment_sections)
+
     return median_probability, final_comment
 
 
@@ -250,8 +288,39 @@ async def get_numeric_prediction(
     all_cdfs = np.array(cdfs)
     median_cdf: List[float] = np.median(all_cdfs, axis=0).tolist()
 
-    final_comment_preamble = (f"# Median CDF length: {len(median_cdf)}\n\n")
-    final_comment = final_comment_preamble + "\n\n".join(final_comment_sections)
+    # Choose the rationale whose CDF is closest (L2) to the median CDF
+    try:
+        diffs = [float(np.linalg.norm(np.array(c) - np.array(median_cdf))) for c in cdfs]
+        closest_index = int(np.argmin(diffs))
+        median_rationale = comments[closest_index]
+    except Exception:
+        median_rationale = comments[len(comments) // 2]
+
+    # Summarize with the shared prompt
+    summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
+    title = question_details.get("title", "")
+    question_type = question_details.get("type", "numeric")
+    resolution_criteria = question_details.get("resolution_criteria", "")
+    fine_print = question_details.get("fine_print", "")
+    summary_prompt = summary_prompt_template.format(
+        title=title,
+        question_type=question_type,
+        resolution_criteria=resolution_criteria,
+        fine_print=fine_print,
+        analysis=median_rationale,
+    )
+
+    summary_comment = None
+    try:
+        summary_comment = await call_llm(summary_prompt, "openai/gpt-5-nano", 0.3, "medium")
+    except Exception as e:
+        print(f"Summary generation failed (numeric): {e}. Falling back to detailed comments.")
+
+    if isinstance(summary_comment, str) and summary_comment.strip():
+        final_comment = summary_comment.strip()
+    else:
+        final_comment = f"# Median CDF length: {len(median_cdf)}\n\n" + "\n\n".join(final_comment_sections)
+
     return median_cdf, final_comment
 
 
@@ -367,12 +436,43 @@ async def get_multiple_choice_prediction(
     }
 
     trimmed_note = f"(kept {keep_count}/{n_runs} runs; trimmed {n_runs - keep_count})"
-    final_comment_preamble = ""
-    final_comment = (
-        final_comment_preamble
-        + f"Trimmed-mean Probability Yes Per Category {trimmed_note}: `{trimmed_probability_yes_per_category}`\n\n"
-        + "\n\n".join(final_comment_sections)
+
+    # Select rationale closest to pooled vector
+    try:
+        dists_to_pooled = [float(np.linalg.norm(run_matrix[i] - pooled_vector)) for i in range(n_runs)]
+        closest_index = int(np.argmin(dists_to_pooled))
+        pooled_rationale = comments[closest_index]
+    except Exception:
+        pooled_rationale = comments[len(comments) // 2]
+
+    # Summarize with shared prompt
+    summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
+    title = question_details.get("title", "")
+    question_type = question_details.get("type", "multiple_choice")
+    resolution_criteria = question_details.get("resolution_criteria", "")
+    fine_print = question_details.get("fine_print", "")
+    summary_prompt = summary_prompt_template.format(
+        title=title,
+        question_type=question_type,
+        resolution_criteria=resolution_criteria,
+        fine_print=fine_print,
+        analysis=pooled_rationale,
     )
+
+    summary_comment = None
+    try:
+        summary_comment = await call_llm(summary_prompt, "openai/gpt-5-nano", 0.3, "medium")
+    except Exception as e:
+        print(f"Summary generation failed (multiple choice): {e}. Falling back to detailed comments.")
+
+    if isinstance(summary_comment, str) and summary_comment.strip():
+        final_comment = summary_comment.strip()
+    else:
+        final_comment = (
+            f"Trimmed-mean Probability Yes Per Category {trimmed_note}: `{trimmed_probability_yes_per_category}`\n\n"
+            + "\n\n".join(final_comment_sections)
+        )
+
     return trimmed_probability_yes_per_category, final_comment
 
 
@@ -430,7 +530,7 @@ async def forecast_individual_question(
 
     print(f"-----------------------------------------------\nPost {post_id} Question {question_id}:\n")
     print(f"Forecast for post {post_id} (question {question_id}):\n{forecast}")
-    #print(f"Comment for post {post_id} (question {question_id}):\n{comment}")
+    print(f"Comment for post {post_id} (question {question_id}):\n{comment}")
 
     # Log forecast event (pre-submission)
     try:

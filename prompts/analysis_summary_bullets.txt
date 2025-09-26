@@ -1,0 +1,23 @@
+You are assisting a probabilistic forecaster. Summarize the provided analysis into 5–10 concise bullet points suitable for a public forecast comment.
+
+Question title:
+{title}
+
+Question type:
+{question_type}
+
+Resolution criteria (for context):
+{resolution_criteria}
+
+Fine print (for context):
+{fine_print}
+
+Analysis to summarize:
+{analysis}
+
+Instructions:
+- Produce 5–10 bullets only; no preamble or closing text.
+- Be precise, decision-relevant, and neutral in tone.
+- Avoid restating the exact probability or numeric outputs; emphasize rationale.
+- Use hyphen bullets.
+

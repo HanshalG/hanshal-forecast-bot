@@ -123,7 +123,7 @@ def _sanitize_question_text(text: str) -> str:
         return str(text).strip()
 
 async def get_historical_research_questions(content: str) -> list[str]:
-    response = await call_llm(content, "gpt-5-mini", 0.3)
+    response = await call_llm(content, "gpt-5-mini", 0.3, "medium")
 
     # Only consider the portion after "Search questions:" to avoid the Analysis section
     lower_response = response.lower()
@@ -143,7 +143,7 @@ async def get_current_research_questions(content: str) -> list[str]:
     The prompt format is identical: an Analysis section, then a "Search questions:" section
     with lines that start with [Question]. We only parse the questions section.
     """
-    response = await call_llm(content, "gpt-5-mini", 0.3)
+    response = await call_llm(content, "gpt-5-mini", 0.3, "medium")
 
     lower_response = response.lower()
     start_index = lower_response.find("search questions:")
@@ -277,7 +277,7 @@ async def get_exa_answers_async(questions: list[str], *, max_concurrency: int = 
 async def get_exa_research_report(content: str) -> str:
     """Get research report by asking questions to Exa."""
     # Get research questions from LLM
-    questions_response = await call_llm(content, "gpt-5-mini", 0.3)
+    questions_response = await call_llm(content, "gpt-5-mini", 0.3, "medium")
 
     #print("questions_response", questions_response)
     # Extract questions from response
@@ -311,7 +311,7 @@ def read_prompt(filename: str) -> str:
     except FileNotFoundError:
         raise FileNotFoundError(f"Prompt file not found: {path}")
 
-async def call_llm(prompt: str, model: str, temperature: float) -> str:
+async def call_llm(prompt: str, model: str, temperature: float, reasoning_effort: str = "medium") -> str:
     """
     Makes a completion request to OpenRouter (OpenAI SDK compatible) with concurrent
     request limiting and retry/backoff for transient API/JSON decode errors.
@@ -335,7 +335,7 @@ async def call_llm(prompt: str, model: str, temperature: float) -> str:
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=temperature,
-                    reasoning_effort="high",
+                    reasoning_effort=reasoning_effort,
                     stream=False,
                 )
                 elapsed_s = time.time() - start_time
@@ -738,7 +738,7 @@ async def filter_relevant_asknews_articles(
         article_block = _format_article_context(adict)
         prompt = _build_prompt(question_details, article_block)
         try:
-            answer = await call_llm(prompt, model, temperature)
+            answer = await call_llm(prompt, model, temperature, "medium")
         except Exception:
             return False, adict
 
@@ -783,16 +783,27 @@ async def filter_relevant_asknews_articles(
 def extract_probability_from_response_as_percentage_not_decimal(
     forecast_text: str,
 ) -> float:
-    # 1) Prefer a strict final-line style: "Probability: NN%" (allow optional decimal and %)
-    strict = re.findall(r"^\s*Probability\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*%?", forecast_text, flags=re.IGNORECASE | re.MULTILINE)
+    # 1) Prefer a strict line style: "Probability: NN%" or "Probability: NN.N" (without %)
+    #    Capture whether a percent sign was present to avoid misinterpreting 1% as 100%.
+    strict_iter = re.finditer(
+        r"^\s*Probability\s*:\s*([0-9]+(?:\.[0-9]+)?)(\s*%)?",
+        forecast_text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
     candidates: list[float] = []
-    for s in strict:
+    for m in strict_iter:
         try:
-            val = float(s)
-            # If user provided a decimal in [0,1], treat as decimal probability and convert to percent
-            if 0.0 <= val <= 1.0:
-                val *= 100.0
-            candidates.append(val)
+            number_str = m.group(1)
+            has_percent = bool(m.group(2))
+            val = float(number_str)
+            if has_percent:
+                # Explicit percent given; use as-is
+                candidates.append(val)
+            else:
+                # No percent sign — interpret values < 1.0 as decimals, otherwise as percents
+                if 0.0 <= val < 1.0:
+                    val *= 100.0
+                candidates.append(val)
         except Exception:
             continue
 
