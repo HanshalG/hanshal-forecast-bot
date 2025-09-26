@@ -681,6 +681,46 @@ def generate_continuous_cdf(
         return y_values
 
     continuous_cdf = linear_interpolation(cdf_xaxis, value_percentiles)
+    # --- Enforce Metaculus API constraints on the CDF ---
+    # Length is already cdf_size by construction of cdf_xaxis
+    n = len(continuous_cdf)
+    if n != cdf_size:
+        # In the unexpected case lengths diverge, resample by truncating/padding last value
+        if n > cdf_size:
+            continuous_cdf = continuous_cdf[:cdf_size]
+        else:
+            last_val = continuous_cdf[-1] if n > 0 else (0.0 if not open_lower_bound else 0.001)
+            continuous_cdf = continuous_cdf + [last_val] * (cdf_size - n)
+        n = len(continuous_cdf)
+
+    # Clip to [0,1]
+    continuous_cdf = [min(1.0, max(0.0, float(v))) for v in continuous_cdf]
+
+    # Enforce endpoint constraints
+    lower_min = 0.0 if not open_lower_bound else 0.001
+    upper_max = 1.0 if not open_upper_bound else 0.999
+
+    # Set endpoints according to bounds
+    continuous_cdf[0] = lower_min if not open_lower_bound else max(continuous_cdf[0], lower_min)
+    continuous_cdf[-1] = upper_max if not open_upper_bound else min(continuous_cdf[-1], upper_max)
+
+    # Ensure strict monotonicity with tiny minimal increment
+    # Use ~1% total mass within range distributed across steps as a lower bound
+    min_delta = max(1e-6, 0.01 / max(1, cdf_size))
+
+    # Forward pass: ensure we can still reach the fixed last value with remaining min steps
+    for i in range(1, n - 1):
+        remaining_steps = (n - 1) - i
+        # Max allowed to leave room for remaining minimal increments up to the final value
+        max_allowed_here = continuous_cdf[-1] - remaining_steps * min_delta
+        desired = max(continuous_cdf[i], continuous_cdf[i - 1] + min_delta)
+        continuous_cdf[i] = min(desired, max_allowed_here)
+
+    # Re-clip to [0,1] and ensure last abides the cap
+    continuous_cdf = [min(1.0, max(0.0, float(v))) for v in continuous_cdf]
+    continuous_cdf[0] = max(continuous_cdf[0], lower_min)
+    continuous_cdf[-1] = min(continuous_cdf[-1], upper_max)
+
     return continuous_cdf
 
 def extract_option_probabilities_from_response(forecast_text: str, options) -> float:
