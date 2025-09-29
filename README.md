@@ -57,3 +57,7 @@ Forecast runs are saved under `logs/` (including per-question JSONL and text fil
 - Triggers every 20 minutes and via manual dispatch.
 - Set required secrets in repository settings: `METACULUS_TOKEN`, `OPENROUTER_API_KEY`, `ASKNEWS_CLIENT_ID`, `ASKNEWS_SECRET`, `EXA_API_KEY`.
 - The workflow uploads `logs/` as an artifact for each run.
+
+### Credit
+https://github.com/Metaculus/metac-bot-template - For bot template to start
+https://github.com/Panshul42/Forecasting_Bot_Q2 - For prompt templates

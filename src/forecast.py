@@ -21,6 +21,7 @@ from src.utils import (
     extract_probability_from_response_as_percentage_not_decimal,
     extract_percentiles_from_response,
     generate_continuous_cdf,
+    enforce_cdf_monotonicity,
     extract_option_probabilities_from_response,
     read_prompt,
     call_llm,
@@ -287,6 +288,14 @@ async def get_numeric_prediction(
     cdfs: List[List[float]] = [pair[0] for pair in cdf_and_comment_pairs]
     all_cdfs = np.array(cdfs)
     median_cdf: List[float] = np.median(all_cdfs, axis=0).tolist()
+
+    # Ensure median CDF also satisfies API monotonicity constraints
+    median_cdf = enforce_cdf_monotonicity(
+        median_cdf,
+        open_upper_bound=open_upper_bound,
+        open_lower_bound=open_lower_bound,
+        min_delta=5e-05,
+    )
 
     # Choose the rationale whose CDF is closest (L2) to the median CDF
     try:

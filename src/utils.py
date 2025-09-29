@@ -1014,35 +1014,59 @@ def generate_continuous_cdf(
             continuous_cdf = continuous_cdf + [last_val] * (cdf_size - n)
         n = len(continuous_cdf)
 
-    # Clip to [0,1]
-    continuous_cdf = [min(1.0, max(0.0, float(v))) for v in continuous_cdf]
+    continuous_cdf = enforce_cdf_monotonicity(
+        continuous_cdf,
+        open_upper_bound=open_upper_bound,
+        open_lower_bound=open_lower_bound,
+        min_delta=5e-05,
+    )
 
-    # Enforce endpoint constraints
+    return continuous_cdf
+
+def enforce_cdf_monotonicity(
+    cdf: list[float],
+    *,
+    open_upper_bound: bool,
+    open_lower_bound: bool,
+    min_delta: float = 5e-05,
+) -> list[float]:
+    """
+    Enforce Metaculus constraints on a CDF array in-place and return it:
+    - Values clipped to [0, 1]
+    - Endpoints set to 0/1 for closed bounds, and at least 0.001/at most 0.999 for open bounds
+    - Strictly increasing by at least `min_delta` at every step
+    """
+    if not isinstance(cdf, list):
+        cdf = list(cdf)
+
+    n = len(cdf)
+    if n == 0:
+        return cdf
+
+    # Clip to [0,1]
+    cdf = [min(1.0, max(0.0, float(v))) for v in cdf]
+
+    # Endpoint constraints
     lower_min = 0.0 if not open_lower_bound else 0.001
     upper_max = 1.0 if not open_upper_bound else 0.999
 
     # Set endpoints according to bounds
-    continuous_cdf[0] = lower_min if not open_lower_bound else max(continuous_cdf[0], lower_min)
-    continuous_cdf[-1] = upper_max if not open_upper_bound else min(continuous_cdf[-1], upper_max)
+    cdf[0] = lower_min if not open_lower_bound else max(cdf[0], lower_min)
+    cdf[-1] = upper_max if not open_upper_bound else min(cdf[-1], upper_max)
 
-    # Ensure strict monotonicity with tiny minimal increment
-    # Use ~1% total mass within range distributed across steps as a lower bound
-    min_delta = max(1e-6, 0.01 / max(1, cdf_size))
-
-    # Forward pass: ensure we can still reach the fixed last value with remaining min steps
+    # Ensure strict monotonicity with minimal increment
     for i in range(1, n - 1):
         remaining_steps = (n - 1) - i
-        # Max allowed to leave room for remaining minimal increments up to the final value
-        max_allowed_here = continuous_cdf[-1] - remaining_steps * min_delta
-        desired = max(continuous_cdf[i], continuous_cdf[i - 1] + min_delta)
-        continuous_cdf[i] = min(desired, max_allowed_here)
+        max_allowed_here = cdf[-1] - remaining_steps * min_delta
+        desired = max(cdf[i], cdf[i - 1] + min_delta)
+        cdf[i] = min(desired, max_allowed_here)
 
-    # Re-clip to [0,1] and ensure last abides the cap
-    continuous_cdf = [min(1.0, max(0.0, float(v))) for v in continuous_cdf]
-    continuous_cdf[0] = max(continuous_cdf[0], lower_min)
-    continuous_cdf[-1] = min(continuous_cdf[-1], upper_max)
+    # Final safety clip
+    cdf = [min(1.0, max(0.0, float(v))) for v in cdf]
+    cdf[0] = max(cdf[0], lower_min)
+    cdf[-1] = min(cdf[-1], upper_max)
 
-    return continuous_cdf
+    return cdf
 
 def extract_option_probabilities_from_response(forecast_text: str, options) -> float:
 
