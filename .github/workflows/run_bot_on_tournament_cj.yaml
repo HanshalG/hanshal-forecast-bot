@@ -1,9 +1,7 @@
-name: Forecast on new AI tournament questions
+name: Forecast on new AI tournament questions (cron-jobs.org)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/20 * * * *" # runs every 20 minutes. Make sure to skip already forecasted questions!
 
 # Add concurrency group to prevent parallel runs
 concurrency:
