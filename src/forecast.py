@@ -76,13 +76,15 @@ def generate_multiple_choice_forecast(options, option_probabilities) -> dict:
 async def get_binary_prediction(
     question_details: dict,
     num_runs: int,
+    max_outside_searches: int = 10,
+    max_inside_searches: int = 10,
 ) -> Tuple[float, str]:
     print(f"Preparing outside view context")
-    historical_context = await prepare_outside_view_context(question_details)
+    historical_context = await prepare_outside_view_context(question_details, max_searches=max_outside_searches)
 
     # Prepare inside view context once
     print(f"Preparing inside view context")
-    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
+    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details, max_searches=max_inside_searches)
 
     async def get_inside_probability_and_comment(n) -> Tuple[float, str, str]:
         # Per-run retry logic (2 retries -> up to 3 attempts total)
@@ -93,7 +95,7 @@ async def get_binary_prediction(
             try:
                 # Generate outside view per run using the precomputed historical context
                 print(f"Generating outside view {n+1} (attempt {attempts})")
-                outside_view_text = await generate_outside_view(question_details, historical_context)
+                outside_view_text = await generate_outside_view(question_details, historical_context, max_searches=max_outside_searches)
                 print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
 
                 print(f"Generating inside view {n+1} (attempt {attempts})")
@@ -102,6 +104,7 @@ async def get_binary_prediction(
                     outside_view_text,
                     precomputed_news_context=pre_news_ctx,
                     precomputed_exa_context=pre_exa_ctx,
+                    max_searches=max_inside_searches,
                 )
                 print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text[-200:]}\"")
 
@@ -190,7 +193,10 @@ async def get_binary_prediction(
 
 
 async def get_numeric_prediction(
-    question_details: dict, num_runs: int
+    question_details: dict,
+    num_runs: int,
+    max_outside_searches: int = 10,
+    max_inside_searches: int = 10,
 ) -> Tuple[List[float], str]:
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -219,9 +225,9 @@ async def get_numeric_prediction(
     else:
         lower_bound_message = f"The outcome can not be lower than {lower_bound}."
 
-    historical_context = await prepare_outside_view_context(question_details)
+    historical_context = await prepare_outside_view_context(question_details, max_searches=max_outside_searches)
     # Prepare inside view context once
-    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
+    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details, max_searches=max_inside_searches)
 
     async def get_numeric_cdf_and_comment() -> Tuple[List[float], str]:
         attempts = 0
@@ -231,7 +237,7 @@ async def get_numeric_prediction(
             try:
                 # Generate outside view per run using the precomputed historical context
                 print(f"Generating outside view (attempt {attempts})")
-                outside_view_text = await generate_outside_view(question_details, historical_context)
+                outside_view_text = await generate_outside_view(question_details, historical_context, max_searches=max_outside_searches)
                 try:
                     print(f"Outside view (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
                 except Exception:
@@ -246,6 +252,7 @@ async def get_numeric_prediction(
                     hint="",
                     precomputed_news_context=pre_news_ctx,
                     precomputed_exa_context=pre_exa_ctx,
+                    max_searches=max_inside_searches,
                 )
                 try:
                     print(f"Inside view (attempt {attempts}): \"...{rationale[-200:]}\"")
@@ -336,14 +343,16 @@ async def get_numeric_prediction(
 async def get_multiple_choice_prediction(
     question_details: dict,
     num_runs: int,
+    max_outside_searches: int = 10,
+    max_inside_searches: int = 10,
 ) -> Tuple[Dict[str, float], str]:
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     options = question_details["options"]
 
-    historical_context = await prepare_outside_view_context(question_details)
+    historical_context = await prepare_outside_view_context(question_details, max_searches=max_outside_searches)
     # Prepare inside view context once
-    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details)
+    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details, max_searches=max_inside_searches)
 
     async def ask_inside_view_mc() -> Tuple[Dict[str, float], str]:
         attempts = 0
@@ -353,7 +362,7 @@ async def get_multiple_choice_prediction(
             try:
                 # Generate outside view per run using the precomputed historical context
                 print(f"Generating outside view (attempt {attempts})")
-                outside_view_text = await generate_outside_view(question_details, historical_context)
+                outside_view_text = await generate_outside_view(question_details, historical_context, max_searches=max_outside_searches)
                 try:
                     print(f"Outside view (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
                 except Exception:
@@ -364,6 +373,7 @@ async def get_multiple_choice_prediction(
                     outside_view_text,
                     precomputed_news_context=pre_news_ctx,
                     precomputed_exa_context=pre_exa_ctx,
+                    max_searches=max_inside_searches,
                 )
                 try:
                     print(f"Inside view (attempt {attempts}): \"...{rationale[-200:]}\"")
@@ -493,6 +503,8 @@ async def forecast_individual_question(
     submit_prediction: bool,
     num_runs_per_question: int,
     skip_previously_forecasted_questions: bool,
+    max_outside_searches: int = 10,
+    max_inside_searches: int = 10,
 ) -> str:
     post_details = get_post_details(post_id)
     question_details = post_details["question"]
@@ -520,19 +532,19 @@ async def forecast_individual_question(
 
     if question_type == "binary":
         forecast, comment = await get_binary_prediction(
-            question_details, num_runs_per_question
+            question_details, num_runs_per_question, max_outside_searches, max_inside_searches
         )
     elif question_type == "numeric":
         forecast, comment = await get_numeric_prediction(
-            question_details, num_runs_per_question
+            question_details, num_runs_per_question, max_outside_searches, max_inside_searches
         )
     elif question_type == "discrete":
         forecast, comment = await get_numeric_prediction(
-            question_details, num_runs_per_question
+            question_details, num_runs_per_question, max_outside_searches, max_inside_searches
         )
     elif question_type == "multiple_choice":
         forecast, comment = await get_multiple_choice_prediction(
-            question_details, num_runs_per_question
+            question_details, num_runs_per_question, max_outside_searches, max_inside_searches
         )
     else:
         raise ValueError(f"Unknown question type: {question_type}")
@@ -602,6 +614,8 @@ async def forecast_questions(
     submit_prediction: bool,
     num_runs_per_question: int,
     skip_previously_forecasted_questions: bool,
+    max_outside_searches: int = 10,
+    max_inside_searches: int = 10,
 ) -> None:
     forecast_tasks = [
         forecast_individual_question(
@@ -610,6 +624,8 @@ async def forecast_questions(
             submit_prediction,
             num_runs_per_question,
             skip_previously_forecasted_questions,
+            max_outside_searches,
+            max_inside_searches,
         )
         for question_id, post_id in open_question_id_post_id
     ]

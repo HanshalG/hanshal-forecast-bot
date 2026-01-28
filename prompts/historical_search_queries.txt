@@ -1,0 +1,40 @@
+You are helping with historical research for the forecasting question below. Your job is to propose a small set of highly effective queries for the Exa /search API. Each query MUST be returned as a single-line JSON object containing fields that map directly to Exa’s /search parameters.
+
+Forecasting question:
+Title: {title}
+Background: {background}
+Resolution criteria (not yet satisfied): {resolution_criteria}
+Fine print: {fine_print}
+Today is {today}.
+
+General guidance:
+- Focus on *historical context* that builds a strong outside view: comparable events, base rates, precedent timelines, regulatory or official sources, and authoritative reports.
+- Use short, literal, high-precision searches. Use **category** to target source types (e.g., "news", "pdf", "research paper", "github", "tweet" if relevant).
+- Use **date filters** smartly:
+  - For historical baselines, cap recency with `endPublishedDate` (<= {today}) and set a sensible `startPublishedDate` (e.g., when the phenomenon plausibly began).
+  - If the question has a known window, constrain to it exactly.
+  - only use optionally if it will help
+- Use **domain filters** to emphasize primary sources (`includeDomains`: e.g., regulators, governments, statistical agencies, company sites).
+- Use **phrase filters** when you need a must-have term in the page body (`includeText`). Keep these ≤5 words.
+- Make sure queries are short literal queries.
+- If a concise synthesis would be useful, include an optional `summaryQuery` (≤6 words) to steer summarization focus (e.g., "methodology change", "base rate definition"). If omitted, a general summary will be requested.
+
+Return 10 JSONS max
+
+Return format (STRICT):
+Each line is a single JSON object with this shape (omit fields you don’t use):
+{
+  "query": "<the search string>",
+  "category": "news|pdf|research paper|github|tweet|company|personal site|linkedin profile|financial report" #OPTIONAL,
+  "includeDomains": ["example.gov", "regulator.example"] #OPTIONAL,
+  "startPublishedDate": "YYYY-MM-DDTHH:MM:SSZ" #OPTIONAL,
+  "endPublishedDate": "YYYY-MM-DDTHH:MM:SSZ" #OPTIONAL,
+  "includeText": ["required phrases ≤5 words"] #OPTIONAL,
+  "summaryQuery": "<concise focus for summarization>" #OPTIONAL
+}
+
+{JSON payload 1}
+{JSON payload 2}
+{JSON payload 3}
+{JSON payload 4}
+"""

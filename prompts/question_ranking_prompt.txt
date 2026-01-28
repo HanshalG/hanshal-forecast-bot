@@ -1,0 +1,32 @@
+You are helping prioritize research questions for a forecasting task. Given a list of research questions, rank them by importance and relevance to the forecasting question below.
+
+Forecasting Question:
+{title}
+
+Question Background:
+{background}
+
+Resolution Criteria:
+{resolution_criteria}
+
+Fine Print:
+{fine_print}
+
+Context Type: {context_type}
+
+Research Questions to Rank:
+{questions_list}
+
+Your task is to rank these questions from MOST IMPORTANT to LEAST IMPORTANT for answering the forecasting question. Consider:
+- How directly each question relates to the resolution criteria
+- How likely each question is to provide actionable insights
+- How critical the information would be for making an accurate forecast
+
+Return ONLY a numbered list of questions in order of importance (1 = most important, 2 = second most important, etc.). Use the EXACT question text as provided. Format as:
+
+1. {{exact question text}}
+2. {{exact question text}}
+3. {{exact question text}}
+...
+
+Do not include any analysis or explanation, only the numbered list.

@@ -152,7 +152,7 @@ def list_posts_from_tournament(
     """
     # determine tournament id: prefer argument, then env, else sensible default
     if tournament_id is None:
-        tournament_id = os.getenv("TOURNAMENT_ID") or "fall-aib-2025"
+        tournament_id = os.getenv("TOURNAMENT_ID") or "spring-aib-2026"
 
     url_qparams = {
         "limit": count,

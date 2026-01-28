@@ -10,9 +10,10 @@ from .utils import (
     get_current_research_questions,
     get_exa_answers,
     get_exa_answers_async,
+    rank_questions_by_importance,
 )
 
-LLM_MODEL = "openai/gpt-5"
+LLM_MODEL = "openai/gpt 5.2"
 
 INSIDE_VIEW_PROMPT = read_prompt("inside_view_prompt.txt")
 CURRENT_QUESTIONS_PROMPT = read_prompt("current_questions_prompt.txt")
@@ -23,8 +24,15 @@ INSIDE_VIEW_NUMERIC_PROMPT = read_prompt("inside_view_numeric_prompt.txt")
 async def prepare_inside_view_context(
     question_details: dict,
     today: str | None = None,
+    max_searches: int = 10,
 ) -> tuple[str, str]:
-    """Prepare news and Exa targeted research contexts once."""
+    """Prepare news and Exa targeted research contexts once.
+    
+    Args:
+        question_details: Dict with question information
+        today: Date string (optional)
+        max_searches: Maximum number of Exa searches to perform (default: 10)
+    """
     ts = today or datetime.datetime.now().strftime("%Y-%m-%d")
 
     title = question_details.get("title", "")
@@ -53,6 +61,19 @@ async def prepare_inside_view_context(
         raise RuntimeError("AskNews returned empty context after retries")
     if not isinstance(current_questions, (list, tuple)):
         current_questions = []
+
+    # Rank and limit questions if needed
+    if len(current_questions) > max_searches:
+        print(f"Ranking {len(current_questions)} current questions, selecting top {max_searches}...")
+        current_questions = await rank_questions_by_importance(
+            question_details,
+            current_questions,
+            context_type="current",
+        )
+        current_questions = current_questions[:max_searches]
+        print(f"Selected top {len(current_questions)} current questions for Exa search")
+    elif len(current_questions) > 0:
+        print(f"Using all {len(current_questions)} current questions (within limit of {max_searches})")
 
     for question in current_questions:
         print("Question: ", question[:100], "...")
@@ -100,6 +121,7 @@ async def generate_inside_view(
     outside_view: str,
     precomputed_news_context: str | None = None,
     precomputed_exa_context: str | None = None,
+    max_searches: int = 10,
 ) -> str:
     """Generate an inside view using AskNews context and targeted Exa research.
 
@@ -122,7 +144,7 @@ async def generate_inside_view(
         news_context = precomputed_news_context
         exa_context = precomputed_exa_context
     else:
-        news_context, exa_context = await prepare_inside_view_context(question_details, today)
+        news_context, exa_context = await prepare_inside_view_context(question_details, today, max_searches=max_searches)
 
 
     # 3) Compose inside view prompt
@@ -152,6 +174,7 @@ async def generate_inside_view_multiple_choice(
     *,
     precomputed_news_context: str | None = None,
     precomputed_exa_context: str | None = None,
+    max_searches: int = 10,
 ) -> str:
     """Generate an inside view for multiple choice questions.
 
@@ -172,7 +195,7 @@ async def generate_inside_view_multiple_choice(
         news_context = precomputed_news_context
         exa_context = precomputed_exa_context
     else:
-        news_context, exa_context = await prepare_inside_view_context(question_details, today)
+        news_context, exa_context = await prepare_inside_view_context(question_details, today, max_searches=max_searches)
 
     combined_context = (
         f"Outside View Analysis\n{outside_view}\n\n"
@@ -204,6 +227,7 @@ async def generate_inside_view_numeric(
     hint: str = "",
     precomputed_news_context: str | None = None,
     precomputed_exa_context: str | None = None,
+    max_searches: int = 10,
 ) -> str:
     """Generate an inside view for numeric/discrete questions that yields percentiles."""
 
@@ -219,7 +243,7 @@ async def generate_inside_view_numeric(
         news_context = precomputed_news_context
         exa_context = precomputed_exa_context
     else:
-        news_context, exa_context = await prepare_inside_view_context(question_details, today)
+        news_context, exa_context = await prepare_inside_view_context(question_details, today, max_searches=max_searches)
 
     combined_context = (
         f"Outside View Analysis\n{outside_view}\n\n"

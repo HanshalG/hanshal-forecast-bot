@@ -9,14 +9,14 @@ from src.forecast import forecast_questions
 from src.metaculus_utils import get_open_question_ids_from_tournament
 
 NUMERIC_EXAMPLE_QUESTIONS = [
-    (39606, 39606),
+    (41691, 41691),
 ]
 MC_EXAMPLE_QUESTIONS = [
-    (39997, 39997),
+    (41691, 41691),
 ]
 # The example questions can be used for testing your bot. (note that question and post id are not always the same)
 EXAMPLE_QUESTIONS = [  # (question_id, post_id)
-    (30651, 30651),
+    (41691, 41691),
 ]
 
 ################### FORECASTING ###################
@@ -25,8 +25,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the forecasting bot")
     parser.add_argument(
         "--mode",
-        choices=["fall-aib-2025", "minibench", "example_questions"],
-        default="fall-aib-2025",
+        choices=["spring-aib-2026", "minibench", "example_questions"],
+        default="spring-aib-2026",
     )
     parser.add_argument(
         "--submit",
@@ -52,6 +52,20 @@ if __name__ == "__main__":
         default=False,
         help="Skip questions where a forecast already exists (default: False)",
     )
+    parser.add_argument(
+        "--max-outside-searches",
+        dest="max_outside_searches",
+        type=int,
+        default=10,
+        help="Maximum number of Exa searches for historical/outside view research (default: 10)",
+    )
+    parser.add_argument(
+        "--max-inside-searches",
+        dest="max_inside_searches",
+        type=int,
+        default=10,
+        help="Maximum number of Exa searches for current/inside view research (default: 10)",
+    )
     args = parser.parse_args()
 
     if args.mode == "example_questions":
@@ -60,9 +74,9 @@ if __name__ == "__main__":
     elif args.mode == "minibench":
         open_question_id_post_id = get_open_question_ids_from_tournament("minibench")
         forecast_module.TOURNAMENT_ID = "minibench"
-    elif args.mode == "fall-aib-2025":
-        open_question_id_post_id = get_open_question_ids_from_tournament("fall-aib-2025")
-        forecast_module.TOURNAMENT_ID = "fall-aib-2025",
+    elif args.mode == "spring-aib-2026":
+        open_question_id_post_id = get_open_question_ids_from_tournament("spring-aib-2026")
+        forecast_module.TOURNAMENT_ID = "spring-aib-2026"
 
     asyncio.run(
         forecast_questions(
@@ -70,5 +84,7 @@ if __name__ == "__main__":
             args.submit_prediction,
             args.num_runs_per_question,
             args.skip_previously_forecasted_questions,
+            args.max_outside_searches,
+            args.max_inside_searches,
         )
     )

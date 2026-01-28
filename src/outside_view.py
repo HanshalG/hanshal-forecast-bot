@@ -7,10 +7,11 @@ from .utils import (
     get_historical_research_questions,
     get_exa_answers,
     get_exa_answers_async,
+    rank_questions_by_importance,
 )
 
 
-LLM_MODEL = "openai/gpt-5"
+LLM_MODEL = "openai/gpt 5.2"
 
 
 HISTORICAL_QUESTIONS_PROMPT = read_prompt("historical_questions_prompt.txt")
@@ -28,8 +29,13 @@ def _format_historical_context(qa_by_question: Dict[str, str]) -> str:
     return "\n\n".join(sections)
 
 
-async def prepare_outside_view_context(question_details: dict) -> str:
-    """Prepare historical context once by generating questions and Exa answers."""
+async def prepare_outside_view_context(question_details: dict, max_searches: int = 10) -> str:
+    """Prepare historical context once by generating questions and Exa answers.
+    
+    Args:
+        question_details: Dict with question information
+        max_searches: Maximum number of Exa searches to perform (default: 10)
+    """
     today = datetime.datetime.now().strftime("%Y-%m-%d")
 
     title = question_details.get("title", "")
@@ -47,8 +53,25 @@ async def prepare_outside_view_context(question_details: dict) -> str:
 
     questions: List[str] = await get_historical_research_questions(hist_questions_content)
 
+    # Rank and limit questions if needed
+    if len(questions) > max_searches:
+        print(f"Ranking {len(questions)} historical questions, selecting top {max_searches}...")
+        questions = await rank_questions_by_importance(
+            question_details,
+            questions,
+            context_type="historical",
+        )
+        questions = questions[:max_searches]
+        print(f"Selected top {len(questions)} historical questions for Exa search")
+    elif len(questions) > 0:
+        print(f"Using all {len(questions)} historical questions (within limit of {max_searches})")
+
     for question in questions:
         print("Question: ", question[:100], "...")
+
+    if not questions:
+        print("No historical questions to search")
+        return "No historical context was found."
 
     try:
         qa_map: Dict[str, str] = await get_exa_answers_async(questions)
@@ -77,7 +100,7 @@ async def prepare_outside_view_context(question_details: dict) -> str:
     return context_block
 
 
-async def generate_outside_view(question_details: dict, historical_context: str | None = None) -> str:
+async def generate_outside_view(question_details: dict, historical_context: str | None = None, max_searches: int = 10) -> str:
     """Generate an outside view using historical research questions and Exa answers.
 
     Args:
@@ -96,7 +119,7 @@ async def generate_outside_view(question_details: dict, historical_context: str 
 
     # Step 1-3: Use precomputed context if provided, else prepare it now
     context_block = historical_context if historical_context is not None else (
-        await prepare_outside_view_context(question_details)
+        await prepare_outside_view_context(question_details, max_searches=max_searches)
     )
 
     # Step 4: Build outside view prompt and call LLM

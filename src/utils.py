@@ -24,7 +24,7 @@ EXA_CONCURRENT_REQUESTS_LIMIT = 10
 # Reference units converted from per-1M to per-1k tokens.
 LLM_PRICES_PER_1K: dict[str, dict[str, float]] = {
     # Keys: model name; Values: {"input": price_per_1k_input_tokens, "output": price_per_1k_output_tokens}
-    "gpt-5": {"input": 0.00125, "output": 0.0100},     # $1.25 / $10 per 1M
+    "gpt 5.2": {"input": 0.00175, "output": 0.0140},     # $1.75 / $14 per 1M
     "gpt-5-mini": {"input": 0.00025, "output": 0.0020}, # $0.25 / $2 per 1M
     "gpt-5-nano": {"input": 0.00005, "output": 0.0004}, # $0.05 / $0.40 per 1M
 }
@@ -37,7 +37,7 @@ def _canonicalize_model_for_pricing(model_name: str) -> str:
     """Return a canonical key used in LLM_PRICES_PER_1K.
 
     Normalizes provider prefixes (e.g., "openai/gpt-5-mini" -> "gpt-5-mini") and
-    collapses model variants to their family when possible (e.g., "gpt-5-xyz" -> "gpt-5").
+    collapses model variants to their family when possible (e.g., "gpt 5.2-xyz" -> "gpt 5.2").
     """
     try:
         name = str(model_name).strip().lower()
@@ -49,8 +49,8 @@ def _canonicalize_model_for_pricing(model_name: str) -> str:
             return "gpt-5-nano"
         if name.startswith("gpt-5-mini"):
             return "gpt-5-mini"
-        if name.startswith("gpt-5"):
-            return "gpt-5"
+        if name.startswith("gpt 5.2"):
+            return "gpt 5.2"
         return str(model_name)
     except Exception:
         return str(model_name)
@@ -154,6 +154,112 @@ async def get_current_research_questions(content: str) -> list[str]:
     questions = [_sanitize_question_text(q) for q in raw_questions]
     questions = [q for q in questions if q]
     return questions[:10]
+
+async def rank_questions_by_importance(
+    question_details: dict,
+    questions: list[str],
+    context_type: str = "historical",
+    *,
+    model: str = "gpt-5-mini",
+    temperature: float = 0.3,
+) -> list[str]:
+    """Rank questions by importance using an LLM.
+    
+    Args:
+        question_details: Dict with keys: "title", "description", "resolution_criteria", "fine_print"
+        questions: List of questions to rank
+        context_type: Either "historical" or "current" to indicate the type of research
+        model: LLM model to use for ranking
+        temperature: Temperature for LLM call
+    
+    Returns:
+        List of questions ranked from most to least important (same as input if ranking fails)
+    """
+    if not questions or len(questions) <= 1:
+        return questions
+    
+    try:
+        ranking_prompt_template = read_prompt("question_ranking_prompt.txt")
+        
+        title = question_details.get("title", "")
+        background = question_details.get("description", "")
+        resolution_criteria = question_details.get("resolution_criteria", "")
+        fine_print = question_details.get("fine_print", "")
+        
+        # Format questions list
+        questions_list = "\n".join([f"- {q}" for q in questions])
+        
+        ranking_prompt = ranking_prompt_template.format(
+            title=title,
+            background=background,
+            resolution_criteria=resolution_criteria,
+            fine_print=fine_print,
+            context_type=context_type,
+            questions_list=questions_list,
+        )
+        
+        response = await call_llm(ranking_prompt, model, temperature, "low")
+        
+        # Parse numbered list: "1. question text", "2. question text", etc.
+        ranked_questions: list[str] = []
+        lines = response.splitlines()
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Match pattern: "1. question" or "1) question" or just "1 question"
+            match = re.match(r"^\d+[.)]\s*(.+)$", line)
+            if match:
+                question_text = match.group(1).strip()
+                ranked_questions.append(question_text)
+        
+        # Validate: ensure all original questions are present (in case of parsing issues)
+        if len(ranked_questions) == len(questions):
+            # Check if all questions match (allowing for slight variations)
+            question_set = set(q.lower().strip() for q in questions)
+            ranked_set = set(q.lower().strip() for q in ranked_questions)
+            if question_set == ranked_set:
+                return ranked_questions
+        
+        # Fallback: if ranking doesn't match, try to match questions by similarity
+        # This handles cases where LLM slightly rephrased questions
+        final_ranked: list[str] = []
+        used_indices = set()
+        
+        for ranked_q in ranked_questions:
+            best_match_idx = None
+            best_match_score = 0
+            
+            for idx, orig_q in enumerate(questions):
+                if idx in used_indices:
+                    continue
+                # Simple similarity: check if ranked question contains key words from original
+                orig_words = set(orig_q.lower().split())
+                ranked_words = set(ranked_q.lower().split())
+                if orig_words and ranked_words:
+                    overlap = len(orig_words & ranked_words) / len(orig_words | ranked_words)
+                    if overlap > best_match_score:
+                        best_match_score = overlap
+                        best_match_idx = idx
+            
+            if best_match_idx is not None and best_match_score > 0.3:
+                final_ranked.append(questions[best_match_idx])
+                used_indices.add(best_match_idx)
+        
+        # Add any unmatched questions at the end
+        for idx, orig_q in enumerate(questions):
+            if idx not in used_indices:
+                final_ranked.append(orig_q)
+        
+        if len(final_ranked) == len(questions):
+            return final_ranked
+        
+    except Exception as e:
+        print(f"Warning: Failed to rank questions by importance: {e}. Using original order.")
+    
+    # Fallback: return original order
+    return questions
 
 def get_exa_answers(questions: list[str]) -> dict[str, str]:
     """Return a mapping of question -> formatted Exa answer (with sources)."""
