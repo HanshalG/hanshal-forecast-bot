@@ -11,7 +11,7 @@ from .utils import (
 )
 
 
-LLM_MODEL = "openai/gpt 5.2"
+LLM_MODEL = "openai/gpt-5.2"
 
 
 HISTORICAL_QUESTIONS_PROMPT = read_prompt("historical_questions_prompt.txt")

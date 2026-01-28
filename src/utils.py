@@ -24,7 +24,7 @@ EXA_CONCURRENT_REQUESTS_LIMIT = 10
 # Reference units converted from per-1M to per-1k tokens.
 LLM_PRICES_PER_1K: dict[str, dict[str, float]] = {
     # Keys: model name; Values: {"input": price_per_1k_input_tokens, "output": price_per_1k_output_tokens}
-    "gpt 5.2": {"input": 0.00175, "output": 0.0140},     # $1.75 / $14 per 1M
+    "gpt-5.2": {"input": 0.00175, "output": 0.0140},     # $1.75 / $14 per 1M
     "gpt-5-mini": {"input": 0.00025, "output": 0.0020}, # $0.25 / $2 per 1M
     "gpt-5-nano": {"input": 0.00005, "output": 0.0004}, # $0.05 / $0.40 per 1M
 }
@@ -37,7 +37,7 @@ def _canonicalize_model_for_pricing(model_name: str) -> str:
     """Return a canonical key used in LLM_PRICES_PER_1K.
 
     Normalizes provider prefixes (e.g., "openai/gpt-5-mini" -> "gpt-5-mini") and
-    collapses model variants to their family when possible (e.g., "gpt 5.2-xyz" -> "gpt 5.2").
+    collapses model variants to their family when possible (e.g., "gpt-5.2-xyz" -> "gpt-5.2").
     """
     try:
         name = str(model_name).strip().lower()
@@ -49,8 +49,8 @@ def _canonicalize_model_for_pricing(model_name: str) -> str:
             return "gpt-5-nano"
         if name.startswith("gpt-5-mini"):
             return "gpt-5-mini"
-        if name.startswith("gpt 5.2"):
-            return "gpt 5.2"
+        if name.startswith("gpt-5.2"):
+            return "gpt-5.2"
         return str(model_name)
     except Exception:
         return str(model_name)

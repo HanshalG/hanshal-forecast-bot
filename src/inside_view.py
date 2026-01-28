@@ -13,7 +13,7 @@ from .utils import (
     rank_questions_by_importance,
 )
 
-LLM_MODEL = "openai/gpt 5.2"
+LLM_MODEL = "openai/gpt-5.2"
 
 INSIDE_VIEW_PROMPT = read_prompt("inside_view_prompt.txt")
 CURRENT_QUESTIONS_PROMPT = read_prompt("current_questions_prompt.txt")
