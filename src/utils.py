@@ -1135,12 +1135,14 @@ def enforce_cdf_monotonicity(
     open_upper_bound: bool,
     open_lower_bound: bool,
     min_delta: float = 5e-05,
+    max_delta: float = 0.2,
 ) -> list[float]:
     """
     Enforce Metaculus constraints on a CDF array in-place and return it:
     - Values clipped to [0, 1]
     - Endpoints set to 0/1 for closed bounds, and at least 0.001/at most 0.999 for open bounds
     - Strictly increasing by at least `min_delta` at every step
+    - Increasing by at most `max_delta` at every step
     """
     if not isinstance(cdf, list):
         cdf = list(cdf)
@@ -1159,6 +1161,19 @@ def enforce_cdf_monotonicity(
     # Set endpoints according to bounds
     cdf[0] = lower_min if not open_lower_bound else max(cdf[0], lower_min)
     cdf[-1] = upper_max if not open_upper_bound else min(cdf[-1], upper_max)
+
+    # 1. Forward pass: enforce max step size
+    # This smears sharp jumps to the right
+    for i in range(1, n):
+        if cdf[i] > cdf[i - 1] + max_delta:
+            cdf[i] = cdf[i - 1] + max_delta
+
+    # 2. Backward pass: enforce max step size entering from the right
+    # This prevents the final values from being unreachable or having a huge step at the end
+    # if the forward pass pushed values down too much (though with 0.2 and N=200 that is unlikely)
+    for i in range(n - 2, -1, -1):
+        if cdf[i] < cdf[i + 1] - max_delta:
+            cdf[i] = cdf[i + 1] - max_delta
 
     # Ensure strict monotonicity with minimal increment
     for i in range(1, n - 1):
