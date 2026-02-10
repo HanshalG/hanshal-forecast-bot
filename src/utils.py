@@ -29,9 +29,8 @@ LLM_PRICES_PER_1K: dict[str, dict[str, float]] = {
     "gpt-5-nano": {"input": 0.00005, "output": 0.0004}, # $0.05 / $0.40 per 1M
 }
 
-# Running total estimated LLM cost (USD)
-LLM_TOTAL_COST_USD: float = 0.0
-llm_cost_lock = asyncio.Lock()
+# AskNews Stats
+ASKNEWS_STATS = {"total": 0, "removed": 0}
 
 def _canonicalize_model_for_pricing(model_name: str) -> str:
     """Return a canonical key used in LLM_PRICES_PER_1K.
@@ -60,6 +59,10 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 ASKNEWS_CLIENT_ID = os.getenv("ASKNEWS_CLIENT_ID")
 ASKNEWS_SECRET = os.getenv("ASKNEWS_SECRET")
 EXA_API_KEY = os.getenv("EXA_API_KEY")
+
+# Model Configuration from .env
+INSIDE_VIEW_MODEL = os.getenv("INSIDE_VIEW_MODEL", "gpt-5-mini")
+SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-5-nano")
 
 exa = Exa(api_key=EXA_API_KEY)
 
@@ -123,7 +126,7 @@ def _sanitize_question_text(text: str) -> str:
         return str(text).strip()
 
 async def get_historical_research_questions(content: str) -> list[str]:
-    response = await call_llm(content, "gpt-5-mini", 0.3, "medium")
+    response = await call_llm(content, INSIDE_VIEW_MODEL, 0.3, "medium")
 
     # Only consider the portion after "Search questions:" to avoid the Analysis section
     lower_response = response.lower()
@@ -143,7 +146,7 @@ async def get_current_research_questions(content: str) -> list[str]:
     The prompt format is identical: an Analysis section, then a "Search questions:" section
     with lines that start with [Question]. We only parse the questions section.
     """
-    response = await call_llm(content, "gpt-5-mini", 0.3, "medium")
+    response = await call_llm(content, INSIDE_VIEW_MODEL, 0.3, "medium")
 
     lower_response = response.lower()
     start_index = lower_response.find("search questions:")
@@ -160,7 +163,7 @@ async def rank_questions_by_importance(
     questions: list[str],
     context_type: str = "historical",
     *,
-    model: str = "gpt-5-mini",
+    model: str | None = None,
     temperature: float = 0.3,
 ) -> list[str]:
     """Rank questions by importance using an LLM.
@@ -177,6 +180,10 @@ async def rank_questions_by_importance(
     """
     if not questions or len(questions) <= 1:
         return questions
+    
+    # Use default if model not provided
+    if model is None:
+        model = INSIDE_VIEW_MODEL
     
     try:
         ranking_prompt_template = read_prompt("question_ranking_prompt.txt")
@@ -383,7 +390,7 @@ async def get_exa_answers_async(questions: list[str], *, max_concurrency: int = 
 async def get_exa_research_report(content: str) -> str:
     """Get research report by asking questions to Exa."""
     # Get research questions from LLM
-    questions_response = await call_llm(content, "gpt-5-mini", 0.3, "medium")
+    questions_response = await call_llm(content, INSIDE_VIEW_MODEL, 0.3, "medium")
 
     #print("questions_response", questions_response)
     # Extract questions from response
@@ -472,16 +479,19 @@ async def call_llm(prompt: str, model: str, temperature: float, reasoning_effort
                     except Exception:
                         est_cost_usd = None
 
-                # Update running total
-                total_after_str = "n/a"
-                if est_cost_usd is not None:
-                    try:
-                        global LLM_TOTAL_COST_USD
-                        async with llm_cost_lock:
-                            LLM_TOTAL_COST_USD += est_cost_usd
-                            total_after_str = f"${LLM_TOTAL_COST_USD:.4f}"
-                    except Exception:
-                        pass
+                # Add to global token tracker
+                try:
+                    from src.token_cost import add_token_usage, get_total_usage
+                    pt = int(prompt_tokens or 0)
+                    ct = int(completion_tokens or 0)
+                    tt = int(total_tokens or 0)
+                    cost = float(est_cost_usd or 0.0)
+                    add_token_usage("call_llm", pt, ct, tt, cost)
+                    # Get running total from global tracker
+                    total_usage = get_total_usage()
+                    total_after_str = f"${total_usage['cost']:.4f}"
+                except Exception:
+                    total_after_str = "n/a"
 
                 # Print simple logging line
                 try:
@@ -600,6 +610,15 @@ async def call_asknews_async(question_or_details: str | dict) -> str:
             print(
                 f"AskNews: total fetched={total_raw}, kept={kept_raw}, removed={removed_raw} (unique removed shown below: {len(removed_items)})"
             )
+            
+            # Update stats
+            try:
+                global ASKNEWS_STATS
+                ASKNEWS_STATS["total"] += total_raw
+                ASKNEWS_STATS["removed"] += removed_raw
+            except Exception:
+                pass
+
             for i, art in enumerate(removed_items, start=1):
                 title = art.get("eng_title") or art.get("title") or "(no title)"
                 url = art.get("article_url") or art.get("url") or ""
@@ -763,7 +782,7 @@ async def filter_relevant_asknews_articles(
     question_details: dict,
     articles: list,
     *,
-    model: str = "gpt-5-nano",
+    model: str | None = None,
     temperature: float = 0.3,
 ) -> list[dict]:
     """Filter AskNews articles by relevance to a forecasting question using an LLM.
@@ -778,6 +797,9 @@ async def filter_relevant_asknews_articles(
         A list of article dicts that are deemed relevant. Each kept article is annotated with
         a 'relevance_reason' field summarizing why it is helpful for the forecast.
     """
+    # Use default if model not provided
+    if model is None:
+        model = SUMMARY_MODEL
 
     def _coerce_article_to_dict(a) -> dict:
         if isinstance(a, dict):

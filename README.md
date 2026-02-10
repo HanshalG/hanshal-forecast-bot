@@ -49,6 +49,16 @@ export EXA_API_KEY=...                # required
 poetry run python main.py --mode example_questions
 ```
 
+### Running Agent Modules (New)
+To run the standalone agent scripts for Outside and Inside View generation:
+```bash
+# Outside View Agent
+poetry run python -m src.outside_view
+
+# Inside View Agent
+poetry run python -m src.inside_view
+```
+
 ### Logs
 Forecast runs are saved under `logs/` (including per-question JSONL and text files).
 

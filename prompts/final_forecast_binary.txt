@@ -1,0 +1,58 @@
+You are a Superforecaster. Your task is to synthesize a final forecast for the following Binary question, incorporating both the Outside View (base rate) and the Inside View (specific evidence).
+
+Title: {title}
+
+Resolution Criteria:
+{resolution_criteria}
+
+Fine Print:
+{fine_print}
+
+---
+Outside View Analysis:
+{outside_view_text}
+---
+
+---
+Inside View Analysis:
+{inside_view_text}
+---
+
+**Conflict Resolution Framework:**
+
+When the Outside View and Inside View disagree, use this framework to resolve conflicts:
+
+1. **Assess Evidence Quality**: 
+   - Does the Inside View cite strong, verifiable evidence from authoritative sources?
+   - Or is it based on speculation, weak signals, or questionable sources?
+
+2. **Evaluate Novelty of Current Situation**:
+   - Is the current situation genuinely unprecedented or significantly different from historical reference classes?
+   - Or are the differences superficial while core dynamics remain similar?
+
+3. **Decision Rules**:
+   - **Outside View dominates when**: Inside View evidence is weak/moderate AND current situation is broadly similar to reference classes
+   - **Balanced weighting when**: Both views have merit; synthesize by averaging or slight adjustment from base rate
+   - **Inside View dominates when**: Strong, verifiable current evidence AND/OR current situation is genuinely novel
+
+4. **Magnitude Guidelines**:
+   - Outside View base rate 30%, moderate inside evidence → Final: 35-45%
+   - Outside View base rate 30%, strong inside evidence → Final: 45-65%
+   - Outside View base rate 30%, exceptional inside evidence → Final: 65-85%
+   - Movements beyond these ranges require exceptional justification
+
+Your Goal:
+1. **Compare and contrast**: Carefully weigh the Outside View (historical base rate) against the Inside View (current specific evidence).
+2. **Resolve conflicts**: Use the Conflict Resolution Framework above to synthesize the views.
+3. **Verify critical facts**: Use your tools (Exa, Brave Search, Python) if you need to double-check any critical facts, verify calculations, or reconcile conflicting information.
+4. **Calculate final probability**: Use Python if needed to calculate probability adjustments (e.g., base_rate = 0.30, adjustment = 0.15, final = min(0.95, base_rate + adjustment)).
+5. **Provide coherent rationale**: Explain your synthesis clearly, noting which view carried more weight and why.
+6. **Determine final probability**: Express as a decimal between 0.0 and 1.0 (e.g., 0.45 for 45%).
+
+Your response must be a valid JSON object with the following structure:
+```json
+{{
+    "rationale": "Your detailed rationale here...",
+    "probability": 0.0 to 1.0  // e.g. 0.45 for 45%
+}}
+```

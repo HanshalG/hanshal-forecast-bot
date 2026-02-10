@@ -16,6 +16,11 @@ openai = "^1.57.4"
 python-dotenv = "^1.0.1"
 forecasting-tools = "^0.2.54"
 exa_py = "^1.06"
+langchain = "^1.2.9"
+langchain-community = "^0.4.1"
+langchain-openai = "^1.1.7"
+langgraph = "^1.0.8"
+langchain-experimental = "^0.4.1"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -8,15 +8,9 @@ import src.forecast as forecast_module
 from src.forecast import forecast_questions
 from src.metaculus_utils import get_open_question_ids_from_tournament
 
-NUMERIC_EXAMPLE_QUESTIONS = [
-    (41691, 41691),
-]
-MC_EXAMPLE_QUESTIONS = [
-    (41691, 41691),
-]
 # The example questions can be used for testing your bot. (note that question and post id are not always the same)
 EXAMPLE_QUESTIONS = [  # (question_id, post_id)
-    (41691, 41691),
+    (41904, 41904),
 ]
 
 ################### FORECASTING ###################
@@ -26,7 +20,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         choices=["spring-aib-2026", "minibench", "example_questions"],
-        default="spring-aib-2026",
+        default="example_questions",
     )
     parser.add_argument(
         "--submit",
@@ -42,7 +36,7 @@ if __name__ == "__main__":
         dest="num_runs_per_question",
         type=int,
         default=1,
-        help="Number of inside-view runs per question (default: 1)",
+        help="Number of runs per question (default: 1)",
     )
     parser.add_argument(
         "--skip-prev",
@@ -52,6 +46,8 @@ if __name__ == "__main__":
         default=False,
         help="Skip questions where a forecast already exists (default: False)",
     )
+
+    #TO REMOVE
     parser.add_argument(
         "--max-outside-searches",
         dest="max_outside_searches",
@@ -66,6 +62,13 @@ if __name__ == "__main__":
         default=10,
         help="Maximum number of Exa searches for current/inside view research (default: 10)",
     )
+    parser.add_argument(
+        "--get-prediction-market",
+        action="store_true",
+        help="Check prediction markets (Polymarket) for relevant data before forecasting",
+    )
+    #TO REMOVE
+
     args = parser.parse_args()
 
     if args.mode == "example_questions":
@@ -86,5 +89,6 @@ if __name__ == "__main__":
             args.skip_previously_forecasted_questions,
             args.max_outside_searches,
             args.max_inside_searches,
+            get_prediction_market=args.get_prediction_market,
         )
     )

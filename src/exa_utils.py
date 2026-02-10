@@ -1,13 +1,16 @@
 import datetime
 import json
+import os
 from typing import Any, Dict, List, Tuple
 import asyncio
 
 from .utils import read_prompt, call_llm, exa
 
+# Model Configuration from .env
+INSIDE_VIEW_MODEL = os.getenv("INSIDE_VIEW_MODEL", "gpt-5-mini")
+SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-5-nano")
 
 HISTORICAL_QUERIES_TMPL = "historical_search_queries.txt"
-LLM_MODEL = "gpt-5-mini"
  
 
 
@@ -82,7 +85,7 @@ async def generate_historical_exa_queries(question_details: Dict[str, Any]) -> L
     Returns a list of dicts with keys like: query, includeDomains, startPublishedDate, endPublishedDate, includeText, category (optional).
     """
     prompt = build_historical_queries_prompt(question_details)
-    response = await call_llm(prompt, LLM_MODEL, 0.3, "high")
+    response = await call_llm(prompt, INSIDE_VIEW_MODEL, 0.3, "high")
     payloads = _parse_json_lines(response)
     return payloads
 
@@ -250,13 +253,17 @@ async def filter_relevant_exa_results(
     question_details: Dict[str, Any],
     items: List[Dict[str, Any]],
     *,
-    model: str = "gpt-5-nano",
+    model: str | None = None,
     temperature: float = 0.2,
 ) -> List[Dict[str, Any]]:
     """Filter Exa results for relevance to the forecasting question using an LLM.
 
     Adds a 'relevance_reason' to kept items. Mirrors the AskNews filtering style.
     """
+    # Use default if model not provided
+    if model is None:
+        model = SUMMARY_MODEL
+        
     if not items:
         return []
 

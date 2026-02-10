@@ -9,14 +9,13 @@ import numpy as np
 
 from src.outside_view import (
     generate_outside_view,
-    prepare_outside_view_context,
 )
 from src.inside_view import (
-    prepare_inside_view_context,
     generate_inside_view,
     generate_inside_view_multiple_choice,
     generate_inside_view_numeric,
 )
+from src.final_forecast import generate_final_forecast
 from src.utils import (
     extract_probability_from_response_as_percentage_not_decimal,
     extract_percentiles_from_response,
@@ -35,9 +34,11 @@ from src.metaculus_utils import (
     get_post_details,
 )
 from src.forecast_logger import log_forecast_event
+from src.agent_infrastructure import TOOL_CALL_COUNTS
+from src.prediction_market_check import get_prediction_market_data, format_semipublic_market_data
 
 # Module-level identifiers for logging context
-LLM_MODEL = "openai/gpt-5-mini"
+SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "openai/gpt-5-nano")
 RUN_ID = os.getenv("RUN_ID") or f"run-{uuid.uuid4()}"
 # This will be set by callers before forecasting session begins as needed
 TOURNAMENT_ID = None
@@ -78,116 +79,124 @@ async def get_binary_prediction(
     num_runs: int,
     max_outside_searches: int = 10,
     max_inside_searches: int = 10,
+    prediction_market_data: str = "",
 ) -> Tuple[float, str]:
-    print(f"Preparing outside view context")
-    historical_context = await prepare_outside_view_context(question_details, max_searches=max_outside_searches)
 
-    # Prepare inside view context once
-    print(f"Preparing inside view context")
-    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details, max_searches=max_inside_searches)
-
-    async def get_inside_probability_and_comment(n) -> Tuple[float, str, str]:
+    async def get_probability_and_comment(n) -> Tuple[float, str]:
         # Per-run retry logic (2 retries -> up to 3 attempts total)
         attempts = 0
         last_err: Exception | None = None
         while attempts < 3:
             attempts += 1
             try:
-                # Generate outside view per run using the precomputed historical context
+                # Generate outside view per run
                 print(f"Generating outside view {n+1} (attempt {attempts})")
-                outside_view_text = await generate_outside_view(question_details, historical_context, max_searches=max_outside_searches)
+                outside_view_text = await generate_outside_view(question_details, max_searches=max_outside_searches)
                 print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
 
                 print(f"Generating inside view {n+1} (attempt {attempts})")
-                inside_view_text = await generate_inside_view(
-                    question_details,
-                    outside_view_text,
-                    precomputed_news_context=pre_news_ctx,
-                    precomputed_exa_context=pre_exa_ctx,
-                    max_searches=max_inside_searches,
-                )
+                inside_view_text = await generate_inside_view(question_details)
                 print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text[-200:]}\"")
 
-                probability = extract_probability_from_response_as_percentage_not_decimal(
-                    inside_view_text
-                )
-                comment = (
-                    f"## Outside View\n{outside_view_text}\n\n"
-                    f"## Inside View Analysis\n{inside_view_text}\n\n"
-                    f"Extracted Probability: {probability}%\n\n"
-                )
-                return probability, comment, inside_view_text
-            except Exception as e:
-                print(f"Error in inside-view run {n+1} (attempt {attempts}): {e}")
-                last_err = e
-                # small backoff before retrying
-                await asyncio.sleep(0.5 * attempts)
-        # After retries, re-raise last error
-        raise last_err if last_err is not None else RuntimeError("Unknown error in inside-view run")
+                print("Prediction Market Data:", prediction_market_data)
 
-    # Run inside-view tasks; tolerate per-run failures
+                # Run Final Forecast Agent per run
+                print(f"Running Final Forecast Agent for run {n+1}...")
+                final_forecast_data = await generate_final_forecast(
+                        question_details,
+                        outside_view_text=outside_view_text,
+                        inside_view_text=inside_view_text,
+                        prediction_market_data=prediction_market_data,
+                )
+                print(f"Final Forecast Agent output for run {n+1}: {final_forecast_data}")
+                
+                # Robust parsing of final forecast data - raise errors instead of using fallbacks
+                # Extract probability
+                p_val = final_forecast_data.get("probability")
+                if p_val is None:
+                    raise ValueError(f"No probability found in forecast data: {final_forecast_data}")
+                
+                # Handle various probability formats
+                if isinstance(p_val, str):
+                    # Handle "45%", "0.45", "45", etc.
+                    clean_p = p_val.replace("%", "").strip()
+                    try:
+                        p_val = float(clean_p)
+                    except ValueError:
+                        raise ValueError(f"Could not parse probability string '{p_val}' to float")
+                    # Convert percentage to decimal if > 1
+                    if p_val > 1.0:
+                        p_val /= 100.0
+                
+                probability = float(p_val)
+                
+                # Clamp to valid range
+                probability = max(0.001, min(0.999, probability))
+                
+                # Extract rationale
+                final_forecast_text = final_forecast_data.get("rationale", "")
+                if not final_forecast_text:
+                    raise ValueError(f"No rationale found in forecast data: {final_forecast_data}")
+
+                return probability, final_forecast_text
+
+            except Exception as e:
+                print(f"Error in run {n+1} (attempt {attempts}): {e}")
+                last_err = e
+                await asyncio.sleep(0.5 * attempts)
+        
+        raise last_err if last_err is not None else RuntimeError("Unknown error in run")
+
+    # Run tasks
     results = await asyncio.gather(
-        *[get_inside_probability_and_comment(n) for n in range(num_runs)],
+        *[get_probability_and_comment(n) for n in range(num_runs)],
         return_exceptions=True,
     )
-    successes: list[tuple[float, str, str]] = [r for r in results if not isinstance(r, Exception)]  # type: ignore[list-item]
+    
+    successes: list[tuple[float, str]] = [r for r in results if not isinstance(r, Exception)]
+    
     if len(successes) == 0:
-        # If all runs failed, raise the first error
-        first_err = next((r for r in results if isinstance(r, Exception)), RuntimeError("All inside-view runs failed"))
-        raise first_err  # type: ignore[misc]
+        first_err = next((r for r in results if isinstance(r, Exception)), RuntimeError("All runs failed"))
+        raise first_err
 
-    comments = [pair[1] for pair in successes]
-    final_comment_sections = [f"### Run {i+1}\n{comment}" for i, comment in enumerate(comments)]
-    probabilities = [pair[0] for pair in successes]
-    inside_views = [pair[2] for pair in successes]
+    sorted_successes = sorted(successes, key=lambda x: x[0], reverse=True)
+    probs = np.array([p for p, r in sorted_successes])
+    rationales = [r for p, r in sorted_successes]
 
-    #sort probabilities by descending order
-    probabilities.sort(reverse=True)
+    print("Probabilities from runs:")
+    for p in probs:
+        print(f"{p:.3f}")
 
-    print("Probabilities: ")
-    for p in probabilities:
-        print(p)
+    # Calculate and Clip Median
+    median_probability = np.clip(np.median(probs), 0.001, 0.999)
 
-    median_probability = float(np.median(probabilities)) / 100
+    # Find the median rationale
+    closest_index = np.argmin(np.abs(probs - median_probability))
+    best_rationale = rationales[closest_index]
 
-    print("Median probability: ", median_probability)
+    print(f"Median probability: {median_probability:.3f}")
+    print(f"Best Rationale: {best_rationale[:50]}...") # Print a snippet
 
-    # Select the inside-view analysis whose probability is closest to the median
+    # Generate Final Comment Summary using gpt-5-nano
+    print("Generating Final Forecast Comment...")
+    final_comment = ""
     try:
-        probs_array = np.array(probabilities, dtype=float)
-        target_pct = median_probability * 100.0
-        closest_index = int(np.argmin(np.abs(probs_array - target_pct)))
-        median_inside_view_analysis = inside_views[closest_index]
-    except Exception:
-        # Fallback: pick the middle element
-        median_inside_view_analysis = inside_views[len(inside_views) // 2]
-
-    # Summarize the median analysis using gpt-5-nano with a reusable prompt
-    summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
-    title = question_details.get("title", "")
-    question_type = question_details.get("type", "binary")
-    resolution_criteria = question_details.get("resolution_criteria", "")
-    fine_print = question_details.get("fine_print", "")
-
-    summary_prompt = summary_prompt_template.format(
-        title=title,
-        question_type=question_type,
-        resolution_criteria=resolution_criteria,
-        fine_print=fine_print,
-        analysis=median_inside_view_analysis,
-    )
-
-    summary_comment = None
-    try:
-        summary_comment = await call_llm(summary_prompt, "openai/gpt-5-nano", 0.3, "medium")
+        summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
+        summary_prompt = summary_prompt_template.format(
+            title=question_details.get("title", ""),
+            question_type=question_details.get("type", "binary"),
+            resolution_criteria=question_details.get("resolution_criteria", ""),
+            fine_print=question_details.get("fine_print", ""),
+            analysis=best_rationale,
+        )        
+        final_comment = await call_llm(summary_prompt, SUMMARY_MODEL, 0.3, "medium")
+        final_comment = final_comment.strip()
     except Exception as e:
-        print(f"Summary generation failed: {e}. Falling back to full run comments.")
+        print(f"Summary generation failed: {e}")
+        final_comment = best_rationale
 
-    if isinstance(summary_comment, str):
-        final_comment = summary_comment.strip()
-    else:
-        # Fallback to the original detailed comments if summarization fails
-        final_comment = "\n\n".join(final_comment_sections)
+    if not final_comment:
+         final_comment = best_rationale
 
     return median_probability, final_comment
 
@@ -197,6 +206,7 @@ async def get_numeric_prediction(
     num_runs: int,
     max_outside_searches: int = 10,
     max_inside_searches: int = 10,
+    prediction_market_data: str = "",
 ) -> Tuple[List[float], str]:
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -225,49 +235,67 @@ async def get_numeric_prediction(
     else:
         lower_bound_message = f"The outcome can not be lower than {lower_bound}."
 
-    historical_context = await prepare_outside_view_context(question_details, max_searches=max_outside_searches)
-    # Prepare inside view context once
-    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details, max_searches=max_inside_searches)
-
-    async def get_numeric_cdf_and_comment() -> Tuple[List[float], str]:
+    async def get_numeric_cdf_and_comment(n) -> Tuple[List[float], str]:
         attempts = 0
         last_err: Exception | None = None
         while attempts < 3:
             attempts += 1
             try:
-                # Generate outside view per run using the precomputed historical context
-                print(f"Generating outside view (attempt {attempts})")
-                outside_view_text = await generate_outside_view(question_details, historical_context, max_searches=max_outside_searches)
+                # Generate outside view per run
+                print(f"Generating outside view {n+1} (attempt {attempts})")
+                outside_view_text = await generate_outside_view(question_details, max_searches=max_outside_searches)
                 try:
-                    print(f"Outside view (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
+                    print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
                 except Exception:
                     pass
-                print(f"Generating inside view (attempt {attempts})")
-                rationale = await generate_inside_view_numeric(
+                    
+                print(f"Generating inside view {n+1} (attempt {attempts})")
+                inside_view_text = await generate_inside_view_numeric(
                     question_details,
-                    outside_view_text,
                     units=unit_of_measure,
                     lower_bound_message=lower_bound_message,
                     upper_bound_message=upper_bound_message,
                     hint="",
-                    precomputed_news_context=pre_news_ctx,
-                    precomputed_exa_context=pre_exa_ctx,
                     max_searches=max_inside_searches,
                 )
                 try:
-                    print(f"Inside view (attempt {attempts}): \"...{rationale[-200:]}\"")
+                    print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text[-200:]}\"")
                 except Exception:
                     pass
-                percentile_values = extract_percentiles_from_response(rationale)
 
-                comment = (
-                    f"## Outside View\n{outside_view_text}\n\n"
-                    f"## Inside View Analysis (Numeric)\n{rationale}\n\n"
-                    f"Extracted Percentile_values: {percentile_values}\n\n"
+                # Run Final Forecast Agent per run
+                print(f"Running Final Forecast Agent for run {n+1}...")
+                final_forecast_data = await generate_final_forecast(
+                    question_details,
+                    outside_view_text=outside_view_text,
+                    inside_view_text=inside_view_text,
+                    prediction_market_data=prediction_market_data,
                 )
+                print(f"Final Forecast Agent output for run {n+1}: {final_forecast_data}")
+                
+                # Parse percentiles from agent output
+                percentiles_dict = final_forecast_data.get("percentiles")
+                if not percentiles_dict:
+                    raise ValueError(f"No percentiles found in forecast data: {final_forecast_data}")
+                
+                # Clean percentiles dict
+                clean_percentiles = {}
+                for k, v in percentiles_dict.items():
+                    k_str = str(k).lower().replace("p", "").replace("%", "").strip()
+                    if k_str.isdigit():
+                        clean_percentiles[int(k_str)] = float(v)
+                
+                if not clean_percentiles:
+                    raise ValueError(f"Could not parse percentiles from: {percentiles_dict}")
+                
+                # Extract rationale
+                rationale = final_forecast_data.get("rationale", "")
+                if not rationale:
+                    raise ValueError(f"No rationale found in forecast data: {final_forecast_data}")
 
+                # Generate CDF from percentiles
                 cdf = generate_continuous_cdf(
-                    percentile_values,
+                    clean_percentiles,
                     question_type,
                     open_upper_bound,
                     open_lower_bound,
@@ -277,26 +305,32 @@ async def get_numeric_prediction(
                     cdf_size,
                 )
 
-                return cdf, comment
+                return cdf, rationale
+                
             except Exception as e:
+                print(f"Error in run {n+1} (attempt {attempts}): {e}")
                 last_err = e
                 await asyncio.sleep(0.5 * attempts)
-        raise last_err if last_err is not None else RuntimeError("Unknown error in numeric inside-view run")
+                
+        raise last_err if last_err is not None else RuntimeError("Unknown error in numeric run")
 
     cdf_results = await asyncio.gather(
-        *[get_numeric_cdf_and_comment() for _ in range(num_runs)], return_exceptions=True
+        *[get_numeric_cdf_and_comment(n) for n in range(num_runs)], return_exceptions=True
     )
-    cdf_and_comment_pairs = [r for r in cdf_results if not isinstance(r, Exception)]  # type: ignore[list-item]
-    if len(cdf_and_comment_pairs) == 0:
+    
+    successes: list[tuple[List[float], str]] = [r for r in cdf_results if not isinstance(r, Exception)]
+    
+    if len(successes) == 0:
         first_err = next((r for r in cdf_results if isinstance(r, Exception)), RuntimeError("All numeric runs failed"))
-        raise first_err  # type: ignore[misc]
-    comments = [pair[1] for pair in cdf_and_comment_pairs]
-    final_comment_sections = [f"### Run {i+1}\n{comment}" for i, comment in enumerate(comments)]
-    cdfs: List[List[float]] = [pair[0] for pair in cdf_and_comment_pairs]
+        raise first_err
+
+    cdfs: List[List[float]] = [pair[0] for pair in successes]
+    rationales = [pair[1] for pair in successes]
+    
     all_cdfs = np.array(cdfs)
     median_cdf: List[float] = np.median(all_cdfs, axis=0).tolist()
 
-    # Ensure median CDF also satisfies API monotonicity constraints
+    # Ensure median CDF satisfies API monotonicity constraints
     median_cdf = enforce_cdf_monotonicity(
         median_cdf,
         open_upper_bound=open_upper_bound,
@@ -305,37 +339,33 @@ async def get_numeric_prediction(
     )
 
     # Choose the rationale whose CDF is closest (L2) to the median CDF
-    try:
-        diffs = [float(np.linalg.norm(np.array(c) - np.array(median_cdf))) for c in cdfs]
-        closest_index = int(np.argmin(diffs))
-        median_rationale = comments[closest_index]
-    except Exception:
-        median_rationale = comments[len(comments) // 2]
+    diffs = [float(np.linalg.norm(np.array(c) - np.array(median_cdf))) for c in cdfs]
+    closest_index = int(np.argmin(diffs))
+    best_rationale = rationales[closest_index]
 
-    # Summarize with the shared prompt
-    summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
-    title = question_details.get("title", "")
-    question_type = question_details.get("type", "numeric")
-    resolution_criteria = question_details.get("resolution_criteria", "")
-    fine_print = question_details.get("fine_print", "")
-    summary_prompt = summary_prompt_template.format(
-        title=title,
-        question_type=question_type,
-        resolution_criteria=resolution_criteria,
-        fine_print=fine_print,
-        analysis=median_rationale,
-    )
+    print(f"Median CDF calculated (length: {len(median_cdf)})")
+    print(f"Best Rationale: {best_rationale[:50]}...")
 
-    summary_comment = None
+    # Generate Final Comment Summary using gpt-5-nano
+    print("Generating Final Forecast Comment...")
+    final_comment = ""
     try:
-        summary_comment = await call_llm(summary_prompt, "openai/gpt-5-nano", 0.3, "medium")
+        summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
+        summary_prompt = summary_prompt_template.format(
+            title=question_details.get("title", ""),
+            question_type=question_details.get("type", "numeric"),
+            resolution_criteria=question_details.get("resolution_criteria", ""),
+            fine_print=question_details.get("fine_print", ""),
+            analysis=best_rationale,
+        )
+        final_comment = await call_llm(summary_prompt, SUMMARY_MODEL, 0.3, "medium")
+        final_comment = final_comment.strip()
     except Exception as e:
-        print(f"Summary generation failed (numeric): {e}. Falling back to detailed comments.")
+        print(f"Summary generation failed: {e}")
+        final_comment = best_rationale
 
-    if isinstance(summary_comment, str) and summary_comment.strip():
-        final_comment = summary_comment.strip()
-    else:
-        final_comment = f"# Median CDF length: {len(median_cdf)}\n\n" + "\n\n".join(final_comment_sections)
+    if not final_comment:
+        final_comment = best_rationale
 
     return median_cdf, final_comment
 
@@ -345,86 +375,93 @@ async def get_multiple_choice_prediction(
     num_runs: int,
     max_outside_searches: int = 10,
     max_inside_searches: int = 10,
+    prediction_market_data: str = "",
 ) -> Tuple[Dict[str, float], str]:
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     options = question_details["options"]
 
-    historical_context = await prepare_outside_view_context(question_details, max_searches=max_outside_searches)
-    # Prepare inside view context once
-    pre_news_ctx, pre_exa_ctx = await prepare_inside_view_context(question_details, max_searches=max_inside_searches)
-
-    async def ask_inside_view_mc() -> Tuple[Dict[str, float], str]:
+    async def ask_inside_view_mc(n) -> Tuple[Dict[str, float], str]:
         attempts = 0
         last_err: Exception | None = None
         while attempts < 3:
             attempts += 1
             try:
-                # Generate outside view per run using the precomputed historical context
-                print(f"Generating outside view (attempt {attempts})")
-                outside_view_text = await generate_outside_view(question_details, historical_context, max_searches=max_outside_searches)
+                # Generate outside view per run
+                print(f"Generating outside view {n+1} (attempt {attempts})")
+                outside_view_text = await generate_outside_view(question_details, max_searches=max_outside_searches)
                 try:
-                    print(f"Outside view (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
+                    print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
                 except Exception:
                     pass
-                print(f"Generating inside view (attempt {attempts})")
-                rationale = await generate_inside_view_multiple_choice(
+                    
+                print(f"Generating inside view {n+1} (attempt {attempts})")
+                inside_view_text = await generate_inside_view_multiple_choice(
                     question_details,
-                    outside_view_text,
-                    precomputed_news_context=pre_news_ctx,
-                    precomputed_exa_context=pre_exa_ctx,
                     max_searches=max_inside_searches,
                 )
                 try:
-                    print(f"Inside view (attempt {attempts}): \"...{rationale[-200:]}\"")
+                    print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text[-200:]}\"")
                 except Exception:
                     pass
 
-                option_probabilities = extract_option_probabilities_from_response(
-                    rationale, options
+                # Run Final Forecast Agent per run
+                print(f"Running Final Forecast Agent for run {n+1}...")
+                final_forecast_data = await generate_final_forecast(
+                    question_details,
+                    outside_view_text=outside_view_text,
+                    inside_view_text=inside_view_text,
+                    prediction_market_data=prediction_market_data,
                 )
+                print(f"Final Forecast Agent output for run {n+1}: {final_forecast_data}")
+                
+                # Parse probabilities from agent output
+                probs_dict = final_forecast_data.get("probabilities")
+                if not probs_dict:
+                    raise ValueError(f"No probabilities found in forecast data: {final_forecast_data}")
+                
+                # Match keys in 'options' list and normalize
+                raw_probs = [float(probs_dict.get(opt, 0.0)) for opt in options]
+                s = sum(raw_probs)
+                if s <= 0:
+                    raise ValueError(f"Probabilities sum to zero or less: {probs_dict}")
+                    
+                norm_probs = [p/s for p in raw_probs]
+                probability_yes_per_category = {opt: norm_probs[i] for i, opt in enumerate(options)}
+                
+                # Extract rationale
+                rationale = final_forecast_data.get("rationale", "")
+                if not rationale:
+                    raise ValueError(f"No rationale found in forecast data: {final_forecast_data}")
 
-                comment = (
-                    f"## Outside View\n{outside_view_text}\n\n"
-                    f"## Inside View Analysis (Multiple Choice)\n{rationale}\n\n"
-                    f"EXTRACTED_PROBABILITIES: {option_probabilities}\n\n"
-                )
-
-                probability_yes_per_category = generate_multiple_choice_forecast(
-                    options, option_probabilities
-                )
-                return probability_yes_per_category, comment
+                return probability_yes_per_category, rationale
+                
             except Exception as e:
+                print(f"Error in run {n+1} (attempt {attempts}): {e}")
                 last_err = e
                 await asyncio.sleep(0.5 * attempts)
-        raise last_err if last_err is not None else RuntimeError("Unknown error in MC inside-view run")
+                
+        raise last_err if last_err is not None else RuntimeError("Unknown error in MC run")
 
     mc_results = await asyncio.gather(
-        *[ask_inside_view_mc() for _ in range(num_runs)], return_exceptions=True
+        *[ask_inside_view_mc(n) for n in range(num_runs)], return_exceptions=True
     )
-    probability_yes_per_category_and_comment_pairs = [r for r in mc_results if not isinstance(r, Exception)]  # type: ignore[list-item]
-    if len(probability_yes_per_category_and_comment_pairs) == 0:
+    
+    successes: list[tuple[Dict[str, float], str]] = [r for r in mc_results if not isinstance(r, Exception)]
+    
+    if len(successes) == 0:
         first_err = next((r for r in mc_results if isinstance(r, Exception)), RuntimeError("All MC runs failed"))
-        raise first_err  # type: ignore[misc]
-    comments = [pair[1] for pair in probability_yes_per_category_and_comment_pairs]
-    final_comment_sections = [f"### Run {i+1}\n{comment}" for i, comment in enumerate(comments)]
-    probability_yes_per_category_dicts: List[Dict[str, float]] = [
-        pair[0] for pair in probability_yes_per_category_and_comment_pairs
-    ]
+        raise first_err
+
+    probability_yes_per_category_dicts: List[Dict[str, float]] = [pair[0] for pair in successes]
+    rationales = [pair[1] for pair in successes]
 
     # --- Trimmed Linear Opinion Pool ---
     # Build matrix of shape (num_runs, num_options) in the provided option order
-    try:
-        run_matrix = np.array(
-            [[float(run_probs.get(opt, 0.0)) for opt in options] for run_probs in probability_yes_per_category_dicts],
-            dtype=float,
-        )
-    except Exception:
-        # Fallback: if something unexpected happens, default to simple mean over available dicts
-        run_matrix = np.array(
-            [[float(run_probs[opt]) for opt in options] for run_probs in probability_yes_per_category_dicts],
-            dtype=float,
-        )
+    run_matrix = np.array(
+        [[float(run_probs.get(opt, 0.0)) for opt in options] for run_probs in probability_yes_per_category_dicts],
+        dtype=float,
+    )
 
     # Compute baseline mean and per-run L2 distances
     mean_vector = run_matrix.mean(axis=0)
@@ -450,49 +487,42 @@ async def get_multiple_choice_prediction(
         # Edge-case fallback: uniform distribution
         pooled_vector = np.ones_like(pooled_vector) / float(len(pooled_vector) or 1)
 
-    trimmed_probability_yes_per_category: Dict[str, float] = {
+    final_probs_dict: Dict[str, float] = {
         opt: float(p) for opt, p in zip(options, pooled_vector)
     }
 
-    trimmed_note = f"(kept {keep_count}/{n_runs} runs; trimmed {n_runs - keep_count})"
+    print(f"Trimmed mean probabilities (kept {keep_count}/{n_runs} runs)")
+    print(f"Final probabilities: {final_probs_dict}")
 
     # Select rationale closest to pooled vector
+    dists_to_pooled = [float(np.linalg.norm(run_matrix[i] - pooled_vector)) for i in range(n_runs)]
+    closest_index = int(np.argmin(dists_to_pooled))
+    best_rationale = rationales[closest_index]
+
+    print(f"Best Rationale: {best_rationale[:50]}...")
+
+    # Generate Final Comment Summary using gpt-5-nano
+    print("Generating Final Forecast Comment...")
+    final_comment = ""
     try:
-        dists_to_pooled = [float(np.linalg.norm(run_matrix[i] - pooled_vector)) for i in range(n_runs)]
-        closest_index = int(np.argmin(dists_to_pooled))
-        pooled_rationale = comments[closest_index]
-    except Exception:
-        pooled_rationale = comments[len(comments) // 2]
-
-    # Summarize with shared prompt
-    summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
-    title = question_details.get("title", "")
-    question_type = question_details.get("type", "multiple_choice")
-    resolution_criteria = question_details.get("resolution_criteria", "")
-    fine_print = question_details.get("fine_print", "")
-    summary_prompt = summary_prompt_template.format(
-        title=title,
-        question_type=question_type,
-        resolution_criteria=resolution_criteria,
-        fine_print=fine_print,
-        analysis=pooled_rationale,
-    )
-
-    summary_comment = None
-    try:
-        summary_comment = await call_llm(summary_prompt, "openai/gpt-5-nano", 0.3, "medium")
-    except Exception as e:
-        print(f"Summary generation failed (multiple choice): {e}. Falling back to detailed comments.")
-
-    if isinstance(summary_comment, str) and summary_comment.strip():
-        final_comment = summary_comment.strip()
-    else:
-        final_comment = (
-            f"Trimmed-mean Probability Yes Per Category {trimmed_note}: `{trimmed_probability_yes_per_category}`\n\n"
-            + "\n\n".join(final_comment_sections)
+        summary_prompt_template = read_prompt("analysis_summary_bullets.txt")
+        summary_prompt = summary_prompt_template.format(
+            title=question_details.get("title", ""),
+            question_type=question_details.get("type", "multiple_choice"),
+            resolution_criteria=question_details.get("resolution_criteria", ""),
+            fine_print=question_details.get("fine_print", ""),
+            analysis=best_rationale,
         )
+        final_comment = await call_llm(summary_prompt, SUMMARY_MODEL, 0.3, "medium")
+        final_comment = final_comment.strip()
+    except Exception as e:
+        print(f"Summary generation failed: {e}")
+        final_comment = best_rationale
 
-    return trimmed_probability_yes_per_category, final_comment
+    if not final_comment:
+        final_comment = best_rationale
+        
+    return final_probs_dict, final_comment
 
 
 ################### FORECASTING ###################
@@ -505,7 +535,12 @@ async def forecast_individual_question(
     skip_previously_forecasted_questions: bool,
     max_outside_searches: int = 10,
     max_inside_searches: int = 10,
+    get_prediction_market: bool = False,
 ) -> str:
+    # Reset token usage at start of each forecast
+    from src.token_cost import reset_usage, print_total_usage
+    reset_usage()
+    
     post_details = get_post_details(post_id)
     question_details = post_details["question"]
     title = question_details["title"]
@@ -530,21 +565,34 @@ async def forecast_individual_question(
         summary_of_forecast += f"Skipped: Forecast already made\n"
         return summary_of_forecast
 
+    # Fetch prediction market data if requested
+    prediction_market_data_str = ""
+    if get_prediction_market:
+        print(f"Fetching prediction market data for: {title}")
+        try:
+            markets = await get_prediction_market_data(title)
+            prediction_market_data_str = format_semipublic_market_data(markets)
+            print(f"Prediction Market Data:\n{prediction_market_data_str[:200]}...")
+            summary_of_forecast += f"\nPrediction Markets checked:\n{prediction_market_data_str}\n" 
+        except Exception as e:
+            print(f"Error fetching prediction market data: {e}")
+            summary_of_forecast += f"\nPrediction Markets check failed: {e}\n"
+
     if question_type == "binary":
         forecast, comment = await get_binary_prediction(
-            question_details, num_runs_per_question, max_outside_searches, max_inside_searches
+            question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
         )
     elif question_type == "numeric":
         forecast, comment = await get_numeric_prediction(
-            question_details, num_runs_per_question, max_outside_searches, max_inside_searches
+            question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
         )
     elif question_type == "discrete":
         forecast, comment = await get_numeric_prediction(
-            question_details, num_runs_per_question, max_outside_searches, max_inside_searches
+            question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
         )
     elif question_type == "multiple_choice":
         forecast, comment = await get_multiple_choice_prediction(
-            question_details, num_runs_per_question, max_outside_searches, max_inside_searches
+            question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
         )
     else:
         raise ValueError(f"Unknown question type: {question_type}")
@@ -562,7 +610,7 @@ async def forecast_individual_question(
             "post_id": post_id,
             "question_title": title,
             "question_type": question_type,
-            "model": LLM_MODEL,
+            "model": SUMMARY_MODEL,
             "num_runs": num_runs_per_question,
             "forecast": forecast,
             "comment": comment,
@@ -595,7 +643,7 @@ async def forecast_individual_question(
                 "post_id": post_id,
                 "question_title": title,
                 "question_type": question_type,
-                "model": LLM_MODEL,
+                "model": SUMMARY_MODEL,
                 "num_runs": num_runs_per_question,
                 "forecast": forecast,
                 "comment": comment,
@@ -605,6 +653,9 @@ async def forecast_individual_question(
             log_forecast_event(submitted_event)
         except Exception as e:
             print(f"Logging error (post-submission): {e}")
+
+    # Print token usage summary for this forecast
+    print_total_usage()
 
     return summary_of_forecast
 
@@ -616,6 +667,7 @@ async def forecast_questions(
     skip_previously_forecasted_questions: bool,
     max_outside_searches: int = 10,
     max_inside_searches: int = 10,
+    get_prediction_market: bool = False,
 ) -> None:
     forecast_tasks = [
         forecast_individual_question(
@@ -626,6 +678,7 @@ async def forecast_questions(
             skip_previously_forecasted_questions,
             max_outside_searches,
             max_inside_searches,
+            get_prediction_market,
         )
         for question_id, post_id in open_question_id_post_id
     ]
@@ -663,7 +716,7 @@ async def forecast_questions(
                     "post_id": post_id,
                     "question_title": None,
                     "question_type": None,
-                    "model": LLM_MODEL,
+                    "model": SUMMARY_MODEL,
                     "num_runs": num_runs_per_question,
                     "forecast": None,
                     "comment": None,
@@ -682,4 +735,16 @@ async def forecast_questions(
         print("-----------------------------------------------\nErrors:\n")
         error_message = f"Errors were encountered: {errors}"
         print(error_message)
+        print(error_message)
         raise RuntimeError(error_message)
+
+    print("\n" + "=" * 50)
+    print("Tool Usage Statistics:", flush=True)
+    for tool_name, count in TOOL_CALL_COUNTS.items():
+        print(f"{tool_name}: {count}", flush=True)
+    
+    from src.utils import ASKNEWS_STATS
+    print("\nAskNews Statistics:", flush=True)
+    print(f"Total Fetched: {ASKNEWS_STATS['total']}", flush=True)
+    print(f"Removed by Filter: {ASKNEWS_STATS['removed']}", flush=True)
+    print("=" * 50 + "\n", flush=True)
