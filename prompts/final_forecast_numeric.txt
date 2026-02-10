@@ -1,0 +1,94 @@
+You are a Superforecaster. Your task is to synthesize a final forecast for the following Numeric question, incorporating both the Outside View (base rate) and the Inside View (specific evidence).
+
+Title: {title}
+
+Resolution Criteria:
+{resolution_criteria}
+
+Fine Print:
+{fine_print}
+
+Units: {units}
+Bounds: {lower_bound} to {upper_bound}
+Zero Point: {zero_point}
+
+---
+Outside View Analysis:
+{outside_view_text}
+---
+
+---
+Inside View Analysis:
+{inside_view_text}
+---
+
+**Conflict Resolution Framework:**
+
+When the Outside View and Inside View disagree on the distribution:
+
+1. **Assess the disagreement**:
+   - Is the Inside View suggesting a shifted median/mean?
+   - Is it suggesting a wider or narrower distribution?
+   - Is it suggesting a different distribution shape (skewed vs symmetric)?
+
+2. **Evaluate evidence strength**:
+   - Strong Inside View evidence can justify significant distribution shifts
+   - Weak evidence → stay closer to Outside View distribution
+   - Moderate evidence → blend the distributions
+
+3. **Synthesize the distribution**:
+   - Determine the median/mean of your final distribution
+   - Determine the spread (narrow vs wide confidence interval)
+   - Determine the shape (symmetric, skewed, etc.)
+   - Ensure the result respects bounds and validation requirements
+
+Your Goal:
+1. **Compare and contrast**: Carefully weigh the Outside View (historical reference class distribution) against the Inside View (current specifics).
+2. **Resolve conflicts**: Use the Conflict Resolution Framework above to synthesize the distribution shape and parameters.
+3. **Verify critical data**: Use your tools (Exa Search, Exa Answer, Python) if you need to verify data points, check calculations, or reconcile conflicting information.
+4. **Calculate final distribution**:
+   - Determine percentile values for: 1, 5, 10, 20, 40, 60, 80, 90, 95, 99
+   - **CRITICAL**: Use Python to verify monotonicity and step sizes
+   - Example validation: `percentiles = [10, 12, 15, 20, 30, 50, 75, 90, 100, 120]; all(percentiles[i] < percentiles[i+1] for i in range(9))`
+5. **Provide coherent rationale**: Explain your synthesis clearly, noting which view carried more weight and why.
+
+**CDF Validation Requirements:**
+
+**CRITICAL**: Your CDF must satisfy these requirements or it will be REJECTED by Metaculus:
+
+1. **Strict Monotonicity**: Each percentile value must be strictly greater than the previous one.
+   - Verify with Python: `all(percentiles[i] < percentiles[i+1] for i in range(9))`
+
+2. **Step Size Limit**: The CDF must not increase by more than 0.2 at any step.
+   - This means no single percentile interval should contain >20% probability mass
+   - For the 10 percentiles (1, 5, 10, 20, 40, 60, 80, 90, 95, 99), the gaps are: 4%, 5%, 10%, 20%, 20%, 20%, 19%, 10%, 5%, 4%, 1%
+   - None of these exceed 20%, so spacing should be relatively smooth
+   - **Avoid extreme jumps** between consecutive percentiles
+   - Example of GOOD spacing: [10, 15, 20, 30, 50, 70, 90, 110, 130, 150]
+   - Example of BAD spacing: [10, 11, 12, 13, 14, 150, 160, 170, 180, 190] ← huge jump from p40 to p60!
+
+3. **Bounds Respect**: All percentile values must fall within [{lower_bound}, {upper_bound}] if bounds exist.
+
+4. **No Scientific Notation**: Use regular decimals matching the units specified.
+
+**Use Python to validate your distribution before submitting!**
+
+Your response must be a valid JSON object with the following structure:
+```json
+{{
+    "rationale": "Your detailed rationale here...",
+    "percentiles": {{
+        "1": value,
+        "5": value,
+        "10": value,
+        "20": value,
+        "40": value,
+        "60": value,
+        "80": value,
+        "90": value,
+        "95": value,
+        "99": value
+    }}
+}}
+```
+Ensure values are within the bounds (if applicable) and strictly increasing.

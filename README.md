@@ -32,8 +32,9 @@ Automated forecaster for Metaculus AI tournament questions. Runs locally or on G
   - Multiple-choice: trimmed linear opinion pool across runs
 
 ### Quick start (local)
-1) Install dependencies
+1) Create the Poetry virtual environment with Python 3.11 and install dependencies
 ```bash
+poetry env use 3.11
 poetry install
 ```
 2) Set environment variables
@@ -49,12 +50,31 @@ export EXA_API_KEY=...                # required
 poetry run python main.py --mode example_questions
 ```
 
+If your local environment has drifted because of manual `venv` usage, reset it:
+```bash
+rm -rf .venv
+poetry env use 3.11
+poetry install
+```
+
+### Running Agent Modules (New)
+To run the standalone agent scripts for Outside and Inside View generation:
+```bash
+# Outside View Agent
+poetry run python -m src.outside_view
+
+# Inside View Agent
+poetry run python -m src.inside_view
+```
+
 ### Logs
 Forecast runs are saved under `logs/` (including per-question JSONL and text files).
 
 ### GitHub Actions (CI) for Metaculus Tournaments
-- Workflow: `.github/workflows/run_bot_on_tournament.yaml`
-- Triggers every 20 minutes and via manual dispatch.
+- Workflows:
+  - `.github/workflows/run_bot_on_tournament_cj.yaml`
+  - `.github/workflows/run_bot_on_minibench.yaml`
+- Triggered via manual dispatch (`workflow_dispatch`).
 - Set required secrets in repository settings: `METACULUS_TOKEN`, `OPENROUTER_API_KEY`, `ASKNEWS_CLIENT_ID`, `ASKNEWS_SECRET`, `EXA_API_KEY`.
 - The workflow uploads `logs/` as an artifact for each run.
 

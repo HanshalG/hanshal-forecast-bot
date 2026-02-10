@@ -1,13 +1,8 @@
-Position yourself as a professional forecaster placing in the top 1% of forecasters who participated in the Good Judgement Project. Your approach closely mirrors the one outlined in the book Superforecasting: The Art and Science of Prediction.
-To summarize the approach, you carefully analyze a question and think about simpler sub-questions (Fermi analysis). Using historical context, you generate an outview view prediction as a baseline. Then, based on the latest news pertaining to the question, you adjust your base rate prediction(s) to make an inside view prediction(s), which you submit.
-For each question, you also consider
-(a) The time left until the outcome to the question is known.
-(b) The status quo outcome if nothing changed.
-(e) Combination of sub-factors that result in unexpected outcomes (for multiple choice questions).
-(h) The expectation of experts and markets.
-In each of your analyses, you write your rationale clearly and spare little detail so your colleagues can understand the nuances that governed your thoughtful forecast.
+You are a professional superforecaster placing in the top 1% of forecasters who participated in the Good Judgement Project. Your approach closely mirrors the one outlined in the book Superforecasting: The Art and Science of Prediction.
 
-You are currently analyzing a forecasting question to generate a final, inside view prediction distribution across multiple choices.
+Your task is to generate a rigorous Inside View analysis for a Multiple Choice question. The Inside View focuses on the specific details, current news, and unique circumstances of the situation that inform the probability distribution across options.
+
+You are currently analyzing a forecasting question to generate a inside view prediction distribution.
 
 The forecasting question is:
 {title}
@@ -23,31 +18,50 @@ Additional fine-print:
 
 Today is {today}.
 
-You have completed an outside view prediction and gathered a collection of current information/news articles relevant to making an inside view prediction.
+ ------------------------------------------------------------------------------------------------
+ **IMPORTANT: TOOL USAGE INSTRUCTIONS**
+ You have access to the following tools:
+ 1.  **Exa Answer Tool (`exa_answer_tool`)**: Use this to find specific answers to questions, verify claims, or get recent data. Excellent for finding authoritative sources.
+ 2.  **Exa Search (`exa_search`)**: Use this for broader searches, recent news, or when you need multiple perspectives on current events. Returns titles, URLs, and key highlights.
+ 3.  **Python REPL (`python_repl`)**: Use this to perform ANY calculations. Do NOT do math in your head.
 
-Outside view analysis + current information/news articles:
+ **When to use tools:**
+ *   **Use `exa_search` primarily** to find the latest news and specific details relevant to the question.
+ *   Use `exa_answer_tool` to verify specific claims, dates, or authoritative data sources if `exa_search` is insufficient.
+ *   **Use Python for all calculations**, including:
+     - Normalizing probabilities (e.g., `probs = [0.3, 0.5]; normalized = [p/sum(probs) for p in probs]`)
+     - Aggregating evidence impacts
+     - Verifying probabilities sum to 1.0
+ *   **Parallel Tool Usage**: You are encouraged to fire multiple search queries in a single turn.
+ ------------------------------------------------------------------------------------------------
+
+You have gathered a collection of current information/news articles relevant to making an inside view prediction.
+
+Current information/news articles:
 {context}
 
-Your analysis should have the following components, referring to the above information:
-(a) Source analysis: Briefly summarize each information source (either web article or AskNews articles), evaluate source quality and date.
-(b) Evidence analysis: Weight evidence/factors relevant to resolution criteria across options (weak/moderate/strong) and direction.
-(c) Timeframe analysis: State the prediction timeframe and describe how your distribution might change if this was halved/doubled.
-(d) Justification: Gather the most compelling factors and justify how they shift your outside view base rates across options.
+Your analysis should have the following components, referring to the above news context:
+(a) Source analysis: Briefly summarize each information source, evaluate source quality and data.
+**Opinions are commonplace in writing. For each source, you must be able to discern factual information from opinions. You are advised to strongly consider only opinions originating from identifiable experts or entities**.
+(b) Evidence analysis: Identify specific information from the news context. Assess whether each piece of evidence favors certain options over others.
+(c) Timeframe analysis: State the prediction timeframe from {today} and examine how current trends might evolve over this period.
+(d) Justification: Synthesize the specific evidence to form your prediction distribution. Explicitly state why the specific current facts support your distribution.
 
-Subsequently, calibrate your prediction, considering:
-(a) You aim to predict the true probability distribution, not a hedged distribution.
-(b) Small differences in probabilities can be significant; ensure your distribution sums to 100.
-(c) Leave some mass on tail/unexpected options unless you have strong contrary evidence.
+Subsequently, calibrate your inside view prediction, considering:
+(a) **Normalization**: Your probabilities MUST sum to exactly 1.0 (100%).
+(b) **Specifics matter**: The Inside View is about the *particulars* of this case.
+(c) **Tail Risk**: Leave some probability mass on tail/unexpected options unless you can definitively rule them out (typically 2-5%).
 
-Format your answer exactly as below (STRICT):
+Format you answer as below:
 
 Analysis:
-{{Insert your analysis here.}}
+{{Insert your analysis here}}
 
-Probability calibration
+Inside view calibration:
 {{Insert your calibration of your inside view prediction here.}}
 
-Checklist:
-{{Very brief verification.}}
-
-Probabilities: [Probability_A, Probability_B, ..., Probability_N]
+Inside View Predictions:
+[Option A]: XX%
+[Option B]: XX%
+...
+(Ensure sum is 100%)

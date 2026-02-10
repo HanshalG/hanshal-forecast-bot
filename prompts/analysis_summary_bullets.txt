@@ -20,4 +20,5 @@ Instructions:
 - Be precise, decision-relevant, and neutral in tone.
 - Avoid restating the exact probability or numeric outputs; emphasize rationale.
 - Use hyphen bullets.
+- Use full sentences.
 
