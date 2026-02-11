@@ -15,8 +15,7 @@ load_dotenv()
 # Configuration - Final Forecast Model from .env
 FINAL_FORECAST_MODEL = os.getenv("FINAL_FORECAST_MODEL", "gpt-5-mini")
 
-# Initialize Graph with the final forecast model
-app = create_agent_graph(model_name=FINAL_FORECAST_MODEL)
+
 
 async def generate_final_forecast(
     question_details: dict,
@@ -96,6 +95,9 @@ async def generate_final_forecast(
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
     
+    # Create agent graph instance for this run to reset local tool limits
+    app = create_agent_graph(model_name=FINAL_FORECAST_MODEL)
+
     with get_openai_callback() as cb:
         final_output = await app.ainvoke(initial_state)
         from src.token_cost import print_token_usage

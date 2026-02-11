@@ -1,29 +1,51 @@
 import os
-import asyncio
-from typing import TypedDict, Annotated, List
-from langgraph.graph.message import add_messages
+import json
+from typing import Any
 from dotenv import load_dotenv
 
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langchain_community.tools import BraveSearch
 from langchain_experimental.tools import PythonREPLTool
-from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from exa_py import Exa
 from langchain_openai import ChatOpenAI
 from src.utils import call_llm, SUMMARY_MODEL
 
+# Middleware imports
+from langchain.agents import create_agent
+from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
+from langchain.agents.middleware.types import AgentMiddleware
+
 # Load environment variables
 load_dotenv()
 
+# --- ANSI Colors ---
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+def print_colored(text, color=Colors.ENDC):
+    print(f"{color}{text}{Colors.ENDC}")
+
+
 # --- Configuration ---
 LLM_MODEL = os.getenv("INSIDE_VIEW_MODEL", "gpt-5-mini")
+REASONING_EFFORT = "high"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Set to True to use Exa search, False to use Brave search
 USE_EXA_SEARCH = True
+RUN_TOOL_LIMIT = 5  # Limit per run (single invocation)
+THREAD_TOOL_LIMIT = 5 # Limit per thread (accumulated context)
 
 # --- Tool Definitions ---
 
@@ -58,7 +80,7 @@ if USE_EXA_SEARCH:
             
             results = []
             for i, result in enumerate(response.results, 1):
-                result_text = f"{i}. {result.title}\n   URL: {result.url}[:50]\n"
+                result_text = f"{i}. {result.title}\n   URL: {result.url[:50]}\n"
                 if hasattr(result, 'highlights') and result.highlights:
                     result_text += f"   Key highlights: {', '.join(result.highlights)}\n"
                 results.append(result_text)
@@ -78,169 +100,139 @@ python_repl = PythonREPLTool()
 
 ALL_TOOLS = [exa_answer_tool, python_repl]
 
+def get_tool_instructions() -> str:
+    """Generate tool usage instructions based on available tools."""
+    instructions = [
+        " ------------------------------------------------------------------------------------------------",
+        " **IMPORTANT: TOOL USAGE INSTRUCTIONS**",
+        " You have access to the following tools:"
+    ]
+    
+    # List tools
+    for i, tool in enumerate(ALL_TOOLS, 1):
+        instructions.append(f" {i}.  **{tool.name}**: {tool.description}")
+
+    instructions.append("")
+    instructions.append(" **When to use tools:**")
+    
+    # Add specific advice based on active tools
+    tool_names = [t.name for t in ALL_TOOLS]
+    
+    # Note: explicit check for common names or substrings to be robust
+    has_web = any("search" in t.name.lower() or "web" in t.name.lower() for t in ALL_TOOLS)
+    has_exa = any("exa" in t.name.lower() for t in ALL_TOOLS)
+    has_python = any("python" in t.name.lower() for t in ALL_TOOLS)
+
+    if has_web:
+        instructions.append(" *   **Use `web_search` primarily** for broad searches, recent news, and multiple perspectives.")
+    
+    if has_exa:
+        instructions.append(" *   Use `exa_answer_tool` to verify specific claims, dates, or authoritative data sources if `web_search` is insufficient.")
+        
+    if has_python:
+        instructions.append(" *   **Use Python for all calculations**, including:")
+        instructions.append("     - Computing base rates and weighted averages")
+        instructions.append("     - Aggregating evidence impacts")
+        instructions.append("     - Determining confidence intervals")
+        instructions.append(" *   **IMPORTANT**: When using Python, you MUST `print(...)` the final result. Values not printed are lost.")
+        
+    instructions.append(" *   **Parallel Tool Usage**: You are encouraged to fire multiple search queries in a single turn.")
+    instructions.append(" ------------------------------------------------------------------------------------------------")
+    
+    return "\n".join(instructions)
+
 # --- Tool Tracking ---
 TOOL_CALL_COUNTS = {tool.name: 0 for tool in ALL_TOOLS}
 
 def get_tool_call_counts():
     return TOOL_CALL_COUNTS
 
-# --- Agent State ---
 
-class AgentState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]
+# --- Custom Summarization Middleware ---
+class SummarizationMiddleware(AgentMiddleware):
+    """Middleware that summarizes tool outputs to reduce context size."""
+    
+    async def awrap_tool_call(self, request: ToolCallRequest, handler):
+        """Intercept tool calls and summarize the results."""
+        # Execute the tool first
+        result = await handler(request)
+        
+        # Skip summarization for Python REPL to maintain precision
+        tool_name = request.tool_call.get("name", "")
+        if tool_name in ["python_repl", "Python_REPL", "python"]:
+            # Track call count
+            if tool_name in TOOL_CALL_COUNTS:
+                TOOL_CALL_COUNTS[tool_name] += 1
+            else:
+                TOOL_CALL_COUNTS[tool_name] = 1
+            return result
+        
+        # Get context from state messages
+        messages = request.state.get("messages", [])
+        context = "No context"
+        if messages:
+            # Find last AI message for context
+            for msg in reversed(messages):
+                if hasattr(msg, 'type') and msg.type == 'ai':
+                    context = msg.content if hasattr(msg, 'content') else str(msg)
+                    break
+        
+        # Summarize if result is a ToolMessage
+        if isinstance(result, ToolMessage):
+            prompt = (
+                f"Context: Agent asked: \"{context}\"\n\n"
+                f"Tool Result to Summarize:\n{result.content}\n\n"
+                f"Instructions: Extract ONLY the information relevant to the question. "
+                f"Remove irrelevant data, boilerplate, and navigation elements. "
+                f"If the result is completely irrelevant, return 'Irrelevant'."
+            )
+            
+            summary = await call_llm(prompt, SUMMARY_MODEL, 0.1)
+            
+            # Update tool call count
+            if tool_name in TOOL_CALL_COUNTS:
+                TOOL_CALL_COUNTS[tool_name] += 1
+            else:
+                TOOL_CALL_COUNTS[tool_name] = 1
+            
+            # Return new ToolMessage with summary
+            return ToolMessage(
+                content=f"Summary: {summary}",
+                tool_call_id=result.tool_call_id,
+                name=result.name
+            )
+        
+        return result
 
-# --- LLM Setup ---
 
 # --- Graph Factory ---
-
 def create_agent_graph(model_name: str = LLM_MODEL):
-    """Create and compile the agent state graph with a specific model."""
+    """Create and compile the agent using create_agent with middleware."""
     
     # Initialize LLM with the specific model
     llm = ChatOpenAI(
         model=model_name,
         api_key=os.getenv("OPENROUTER_API_KEY"),
         base_url=OPENROUTER_BASE_URL,
-        temperature=0
-    )
-    llm_with_tools = llm.bind_tools(ALL_TOOLS)
-    
-    # Track cumulative tokens for this agent instance
-    token_tracker = {"total": 0, "cost": 0.0}
-
-    async def agent_node(state: AgentState):
-        """The agent node that calls the LLM."""
-        messages = state["messages"]
-        
-        # Debug prints for tool outputs
-        last_msg_idx = len(messages) - 1
-        tool_outputs = []
-        while last_msg_idx >= 0 and messages[last_msg_idx].type == "tool":
-            tool_outputs.append(messages[last_msg_idx])
-            last_msg_idx -= 1
-            
-        if tool_outputs:
-            print(f"\n--- Tool Outputs ({len(tool_outputs)}) ---")
-            for msg in reversed(tool_outputs):
-                content_preview = str(msg.content)[:500] + "..." if len(str(msg.content)) > 500 else str(msg.content)
-                print(f"[Tool: {msg.name if hasattr(msg, 'name') else 'unknown'}]")
-                print(content_preview)
-                print("-" * 20)
-
-        response = await llm_with_tools.ainvoke(messages)
-        
-        # Limit parallel tool calls to 5
-        if response.tool_calls and len(response.tool_calls) > 5:
-            print(f"--- Limiting tool calls from {len(response.tool_calls)} to 5 ---")
-            response.tool_calls = response.tool_calls[:5]
-        
-        # --- Ongoing Token Prints ---
-        if hasattr(response, "response_metadata") and "token_usage" in response.response_metadata:
-            usage = response.response_metadata["token_usage"]
-            p = usage.get("prompt_tokens", 0)
-            c = usage.get("completion_tokens", 0)
-            t = usage.get("total_tokens", 0)
-            
-            # Calculate cost for this step
-            # Calculate cost for this step
-            step_cost = 0.0
-            try:
-                from src.token_cost import calculate_cost
-                step_cost = calculate_cost(model_name, p, c)
-            except ImportError:
-                step_cost = 0.0
-            
-            # Update cumulative
-            token_tracker["total"] += t
-            token_tracker["cost"] += step_cost
-                
-            print(f"\n--- Step Token Usage ({t} tokens) ---")
-            print(f"  Prompt: {p}, Completion: {c}")
-            print(f"  Est. Cost: ${step_cost:.6f}")
-            print(f"  Cumulative Cost: ${token_tracker['cost']:.6f} ({token_tracker['total']} tokens)")
-            
-        print(f"\n--- Agent Response ---\n{response.content}")
-        
-        if response.tool_calls:
-            print(f"\n--- Tool Calls ---\n{response.tool_calls}")
-            for tool_call in response.tool_calls:
-                tool_name = tool_call["name"]
-                if tool_name in TOOL_CALL_COUNTS:
-                    TOOL_CALL_COUNTS[tool_name] += 1
-                else:
-                    TOOL_CALL_COUNTS[tool_name] = 1
-
-        return {"messages": [response]}
-
-    # ToolNode is a prebuilt node that executes tools
-    tool_node = ToolNode(ALL_TOOLS)
-
-    # Summarization Node
-    async def summarize_nodes(state: AgentState):
-        messages = state["messages"]
-        
-        # Identify recent tool messages
-        tool_messages = []
-        i = len(messages) - 1
-        while i >= 0 and isinstance(messages[i], ToolMessage):
-            tool_messages.append(messages[i])
-            i -= 1
-        
-        if not tool_messages:
-            return {"messages": []}
-            
-        tool_messages.reverse()
-        
-        # Context for summarization (last AIMessage before tools)
-        context_msg = messages[i] if i >= 0 else messages[-1]
-        context = context_msg.content if context_msg else "No context"
-        
-        async def _summarize(msg):
-            # Skip summarization for Python REPL to maintain precision
-            if msg.name in ["python_repl", "Python_REPL", "python"]:
-                return msg
-
-            prompt = (
-                f"Context: Agent asked: \"{context}\"\n\n"
-                f"Tool Result to Summarize:\n{msg.content}\n\n"
-                f"Instructions: Extract ONLY the information relevant to the question. "
-                f"Remove irrelevant data, boilerplate, and navigation elements. "
-                f"If the result is completely irrelevant, return 'Irrelevant'."
-            )
-            # Use lower temp for summarization
-            summary = await call_llm(prompt, SUMMARY_MODEL, 0.1)
-            
-            # Return new ToolMessage with SAME ID to update in-place
-            return ToolMessage(content=f"Summary: {summary}", tool_call_id=msg.tool_call_id, id=msg.id, name=msg.name)
-
-        # Run summaries in parallel
-        new_messages = await asyncio.gather(*[_summarize(msg) for msg in tool_messages])
-        
-        print(f"\n--- Summarized {len(new_messages)} Tool Outputs ---")
-        return {"messages": new_messages}
-
-    workflow = StateGraph(AgentState)
-    
-    # Add nodes
-    workflow.add_node("agent", agent_node)
-    workflow.add_node("tools", tool_node)
-    workflow.add_node("summarize", summarize_nodes)
-    
-    # Add edges
-    workflow.set_entry_point("agent")
-    
-    # Conditional edge: check if the agent wants to call a tool
-    workflow.add_conditional_edges(
-        "agent",
-        tools_condition,
+        temperature=0,
+        reasoning={"effort": REASONING_EFFORT}
     )
     
-    # Edge from tools to summarize
-    workflow.add_edge("tools", "summarize")
+    # Create middleware instances
+    tool_limit_middleware = ToolCallLimitMiddleware(
+        run_limit=RUN_TOOL_LIMIT,
+        thread_limit=THREAD_TOOL_LIMIT,
+        exit_behavior="continue"  # Allow agent to proceed with partial results
+    )
     
-    # Edge from summarize back to agent
-    workflow.add_edge("summarize", "agent")
+    summarization_middleware = SummarizationMiddleware()
     
-    # Compile the graph
-    app = workflow.compile()
+    # Create agent with middleware
+    app = create_agent(
+        model=llm,
+        tools=ALL_TOOLS,
+        middleware=[tool_limit_middleware, summarization_middleware],
+        debug=True  # Enable debug logging to see execution flow
+    )
+    
     return app

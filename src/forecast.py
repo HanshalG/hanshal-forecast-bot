@@ -572,7 +572,7 @@ async def forecast_individual_question(
         try:
             markets = await get_prediction_market_data(title)
             prediction_market_data_str = format_semipublic_market_data(markets)
-            print(f"Prediction Market Data:\n{prediction_market_data_str[:200]}...")
+            print(f"Prediction Market Data:\n{prediction_market_data_str}")
             summary_of_forecast += f"\nPrediction Markets checked:\n{prediction_market_data_str}\n" 
         except Exception as e:
             print(f"Error fetching prediction market data: {e}")

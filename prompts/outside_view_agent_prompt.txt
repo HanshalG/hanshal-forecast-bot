@@ -18,22 +18,7 @@ Additional fine-print:
 
 Today is {today}.
 
- ------------------------------------------------------------------------------------------------
- **IMPORTANT: TOOL USAGE INSTRUCTIONS**
- You have access to the following tools:
- 1.  **Exa Answer Tool (`exa_answer_tool`)**: Use this to find specific answers to questions, verify claims, or get recent historical data. Excellent for finding authoritative sources and statistics.
- 2.  **Web Search (`web_search`)**: Use this for broader searches, recent news, or when you need multiple perspectives on historical trends. This tool returns high-quality highlights from relevant sources.
- 3.  **Python REPL (`python_repl`)**: Use this to perform ANY calculations. Do NOT do math in your head.
- 
- **When to use tools:**
- *   **Use `web_search` primarily** to research reference classes and find historical base rates. It provides concise highlights that are perfect for this analysis.
- *   Use `exa_answer_tool` to verify specific historical statistics, dates, or authoritative data sources if `web_search` is insufficient.
- *   **Use Python for all calculations**, including:
-     - Computing base rates from raw counts (e.g., "15 successes out of 42 attempts = 15/42 = 35.7%")
-     - Calculating weighted averages when combining multiple reference classes
-     - Determining confidence intervals or ranges
- *   **Parallel Tool Usage**: You are encouraged to fire multiple search queries in a single turn. For example, if you need data on three different reference classes, call `web_search` three times in the same response. This is more efficient than searching sequentially.
- ------------------------------------------------------------------------------------------------
+{tool_instructions}
 
 The information has been sourced from the internet/language models, so it is advisable to exercise healthy skepticism at your discretion.
 

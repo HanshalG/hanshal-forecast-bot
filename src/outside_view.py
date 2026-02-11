@@ -13,7 +13,7 @@ from langchain_community.callbacks import get_openai_callback
 # Load environment variables (if not already loaded)
 load_dotenv()
 
-from src.agent_infrastructure import create_agent_graph
+from src.agent_infrastructure import create_agent_graph, get_tool_instructions
 from src.metaculus_utils import get_post_details
 from src.utils import read_prompt
 
@@ -21,9 +21,9 @@ from src.utils import read_prompt
 OUTSIDE_VIEW_MODEL = os.getenv("OUTSIDE_VIEW_MODEL", "gpt-5-mini")
 
 # Initialize Graph
-app = create_agent_graph(model_name=OUTSIDE_VIEW_MODEL)
 
 # --- Main Logic ---
+
 
 async def generate_outside_view(question_details: dict, historical_context: str | None = None, max_searches: int = 10) -> str:
     """Generate an outside view using a LangGraph agent.
@@ -46,16 +46,22 @@ async def generate_outside_view(question_details: dict, historical_context: str 
     today = datetime.date.today().strftime("%Y-%m-%d")
 
     # Construct the initial system/user prompt for the agent
+    # Construct the initial system/user prompt for the agent
     prompt_template = read_prompt("outside_view_agent_prompt.txt")
+    tool_instructions = get_tool_instructions()
     prompt = prompt_template.format(
         title=title,
         background=background,
         resolution_criteria=resolution_criteria,
         fine_print=fine_print,
-        today=today
+        today=today,
+        tool_instructions=tool_instructions
     )
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
+    
+    # Create a fresh agent graph instance for this run to reset local tool limits
+    app = create_agent_graph(model_name=OUTSIDE_VIEW_MODEL)
     
     with get_openai_callback() as cb:
         final_output = await app.ainvoke(initial_state)
@@ -64,8 +70,14 @@ async def generate_outside_view(question_details: dict, historical_context: str 
     
     # The last message should be the agent's final answer
     last_message = final_output["messages"][-1]
+    content = last_message.content
     
-    return last_message.content
+    # Validation: Ensure content is not empty or too short (likely just boilerplate or empty)
+    # This triggers the retry logic in forecast.py if the agent fails to produce a valid analysis.
+    if not content or len(content.strip()) < 50:
+        raise RuntimeError(f"Agent failed to produce a valid Outside View analysis. Content was too short or empty: '{content}'")
+    
+    return content
 
 if __name__ == "__main__":
     # Test block

@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import asyncio
+import re
 import aiohttp
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -11,6 +12,72 @@ from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import PydanticOutputParser
+
+from src.utils import exa
+
+async def search_polymarket_via_web(question: str) -> List[str]:
+    """
+    Uses Exa to search for Polymarket pages related to the question.
+    Returns a list of unique market slugs found in the URLs.
+    """
+    if not os.getenv("EXA_API_KEY"):
+        print("Warning: EXA_API_KEY not set. Skipping web search fallback.")
+        return []
+
+    query = f"site:polymarket.com/event {question}"
+    print(f"Fallback: Searching web for '{query}'...")
+    
+    try:
+        # Use run_in_executor to call blocking synchronous exa.search
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None, 
+            lambda: exa.search(
+                query,
+                num_results=5,
+                use_autoprompt=True
+            )
+        )
+        
+        slugs = set()
+        if response and response.results:
+            for result in response.results:
+                url = result.url
+                # Extract slug from URL pattern: polymarket.com/event/SLUG
+                match = re.search(r"polymarket\.com/event/([^/?#]+)", url)
+                if match:
+                    slugs.add(match.group(1))
+        
+        found_slugs = list(slugs)
+        print(f"Fallback: Found slugs via web search: {found_slugs}")
+        return found_slugs
+        
+    except Exception as e:
+        print(f"Error searching web for Polymarket links: {e}")
+        return []
+
+async def fetch_market_by_slug(slug: str, session: aiohttp.ClientSession) -> List[dict]:
+    """
+    Fetches specific market data from Polymarket API by slug.
+    """
+    url = "https://gamma-api.polymarket.com/events"
+    params = {"slug": slug}
+    
+    try:
+        async with session.get(url, params=params) as response:
+            if response.status == 200:
+                data = await response.json()
+                if isinstance(data, list):
+                    return data
+                elif isinstance(data, dict):
+                     return [data] # API usually returns list for slug too
+                return []
+            else:
+                print(f"Error fetching market by slug '{slug}': {response.status}")
+                return []
+    except Exception as e:
+        print(f"Exception fetching market by slug '{slug}': {e}")
+        return []
 
 # Load environment variables
 load_dotenv()
@@ -282,14 +349,32 @@ async def get_prediction_market_data(question: str) -> List[Market]:
         
     print(f"Searching Polymarket with queries: {queries}")
 
-    # 2. Fetch Data in Parallel
+    # 2. Parallel Search: Polymarket API Keywords + Exa Web Search
     async with aiohttp.ClientSession() as session:
-        tasks = [fetch_markets_from_polymarket(q, session) for q in queries]
-        results = await asyncio.gather(*tasks)
-    
+        # Task A: Fetch by keywords
+        keyword_tasks = [fetch_markets_from_polymarket(q, session) for q in queries]
+        
+        # Task B: Web Search for specific slugs (fallback)
+        # We run this concurrently.
+        slugs_task = asyncio.ensure_future(search_polymarket_via_web(question))
+        
+        # Wait for keyword results
+        keyword_results = await asyncio.gather(*keyword_tasks)
+        
+        # Wait for slugs (should be fast)
+        found_slugs = await slugs_task
+        
+        # Task C: Fetch by slugs
+        slug_tasks = [fetch_market_by_slug(slug, session) for slug in found_slugs]
+        slug_results = await asyncio.gather(*slug_tasks) if slug_tasks else []
+        
     # 3. Aggregate and Deduplicate
     all_events = []
-    for r in results:
+    # Add keyword results
+    for r in keyword_results:
+        all_events.extend(r)
+    # Add slug results
+    for r in slug_results:
         all_events.extend(r)
         
     parsed_markets = parse_market_data(all_events)
@@ -301,11 +386,6 @@ async def get_prediction_market_data(question: str) -> List[Market]:
             unique_markets[m.id] = m
             
     candidates = list(unique_markets.values())
-    
-    print("\nDEBUG: All Candidates found:")
-    for c in candidates:
-        print(f" - {c.question} (ID: {c.id})")
-    print("-" * 20 + "\n")
     
     # 4. Filter with LLM
     print(f"Found {len(candidates)} candidates. Filtering with LLM...")
@@ -331,52 +411,24 @@ def format_semipublic_market_data(markets: List[Market]) -> str:
 
 if __name__ == "__main__":
     # Test cases
-    # Test cases
     test_questions = [
+        "Who will win the 2028 US Presidential Election?",
+        "Will the Fed cut interest rates in 2026?",
+        "Will GTA VI be released in 2026?",
+        "Will a human land on Mars by 2030?",
         "Will the Tisza Party win more parliamentary seats than Fidesz–KDNP in Hungary’s 2026 parliamentary election?"
     ]
 
     async def run_tests():
         print("Starting Polymarket Check Tests...\n")
         
-        # 1. Debug specific market by slug
-        slug = "hungary-parliamentary-election-winner"
-        print(f"DEBUG: Fetching specific market by slug: {slug}")
-        url = "https://gamma-api.polymarket.com/events"
-        params = {"slug": slug}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    print(json.dumps(data, indent=2))
-                else:
-                    print(f"Failed to fetch by slug: {resp.status}")
-        print("-" * 50)
-
-        # 2. Test specific manual queries to understand search behavior
-        manual_queries = [
-            "Hungary",
-            "Hungary election",
-            "Hungarian parliamentary",
-            "Tisza",  # Expected to fail
-            "Fidesz"  # Expected to fail
-        ]
-        
-        print(f"DEBUG: Testing manual queries to find 'Hungarian parliamentary election winner'")
-        for mq in manual_queries:
-            print(f"Querying: '{mq}'")
+        for q in test_questions:
+            print(f"Querying: {q}")
             print("-" * 30)
-            async with aiohttp.ClientSession() as session:
-                results = await fetch_markets_from_polymarket(mq, session)
-                found = False
-                for event in results:
-                     if "Hungarian parliamentary election winner" in event.get("title", ""):
-                         print(f"  SUCCESS! Found event: {event.get('title')}")
-                         found = True
-                         break
-                if not found:
-                     print(f"  Failed to find target event. Top 3 results: {[e.get('title') for e in results[:3]]}")
-            print("\n")
+            markets = await get_prediction_market_data(q)
+            print("-" * 30)
+            print(format_semipublic_market_data(markets))
+            print("\n" + "=" * 50 + "\n")
 
     try:
         asyncio.run(run_tests())

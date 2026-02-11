@@ -6,17 +6,16 @@ from langchain_core.messages import HumanMessage
 from langchain_community.callbacks import get_openai_callback
 
 # --- Agent Infrastructure Import ---
-from src.agent_infrastructure import create_agent_graph, LLM_MODEL
+from src.agent_infrastructure import create_agent_graph, LLM_MODEL, get_tool_instructions
 from src.metaculus_utils import get_post_details
 from src.utils import call_asknews_async, read_prompt
 
 # Load environment variables (if not already loaded)
 load_dotenv()
 
-# Initialize Graph
-app = create_agent_graph(model_name=LLM_MODEL)
 
 # --- Main Logic ---
+
 
 async def generate_inside_view(
     question_details: dict,
@@ -44,6 +43,7 @@ async def generate_inside_view(
     
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_prompt.txt")
+    tool_instructions = get_tool_instructions()
     
     prompt = prompt_template.format(
         title=title,
@@ -51,11 +51,15 @@ async def generate_inside_view(
         resolution_criteria=resolution_criteria,
         fine_print=fine_print,
         today=today,
+        tool_instructions=tool_instructions,
         context=news_context
     )
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
     
+    # Create agent graph instance for this run to reset local tool limits
+    app = create_agent_graph(model_name=LLM_MODEL)
+
     with get_openai_callback() as cb:
         final_output = await app.ainvoke(initial_state)
         from src.agent_infrastructure import LLM_MODEL
@@ -88,6 +92,7 @@ async def generate_inside_view_multiple_choice(
 
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_multiple_choice_prompt.txt")
+    tool_instructions = get_tool_instructions()
 
     prompt = prompt_template.format(
         title=title,
@@ -95,11 +100,17 @@ async def generate_inside_view_multiple_choice(
         resolution_criteria=resolution_criteria,
         fine_print=fine_print,
         today=today,
+        tool_instructions=tool_instructions,
         context=news_context
     )
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
     
+
+    
+    # Create agent graph instance for this run to reset local tool limits
+    app = create_agent_graph(model_name=LLM_MODEL)
+
     with get_openai_callback() as cb:
         final_output = await app.ainvoke(initial_state)
         from src.agent_infrastructure import LLM_MODEL
@@ -133,6 +144,7 @@ async def generate_inside_view_numeric(
 
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_numeric_prompt.txt")
+    tool_instructions = get_tool_instructions()
 
     prompt = prompt_template.format(
         title=title,
@@ -144,11 +156,17 @@ async def generate_inside_view_numeric(
         upper_bound_message=upper_bound_message,
         hint=hint,
         today=today,
+        tool_instructions=tool_instructions,
         context=news_context
     )
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
     
+
+    
+    # Create agent graph instance for this run to reset local tool limits
+    app = create_agent_graph(model_name=LLM_MODEL)
+
     with get_openai_callback() as cb:
         final_output = await app.ainvoke(initial_state)
         from src.agent_infrastructure import LLM_MODEL

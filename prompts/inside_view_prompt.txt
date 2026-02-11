@@ -18,21 +18,7 @@ Additional fine-print:
 
 Today is {today}.
 
- ------------------------------------------------------------------------------------------------
- **IMPORTANT: TOOL USAGE INSTRUCTIONS**
- You have access to the following tools:
- 1.  **Exa Answer Tool (`exa_answer_tool`)**: Use this to find specific answers to questions, verify claims, or get recent data. Excellent for finding authoritative sources.
- 2.  **Web Search (`web_search`)**: Use this for broader searches, recent news, or when you need multiple perspectives on current events.
- 3.  **Python REPL (`python_repl`)**: Use this to perform ANY calculations. Do NOT do math in your head.
-
- **When to use tools:**
- *   **Use `web_search` primarily** to find the latest news and specific details relevant to the question.
- *   Use `exa_answer_tool` to verify specific claims, dates, or authoritative data sources if `web_search` is insufficient.
- *   **Use Python for all calculations**, including:
-     - Aggregating evidence impacts
-     - Bayesian updates if you can estimate a prior
- *   **Parallel Tool Usage**: You are encouraged to fire multiple search queries in a single turn.
- ------------------------------------------------------------------------------------------------
+{tool_instructions}
 
 You have gathered a collection of current information/news articles relevant to making an inside view prediction.
 
