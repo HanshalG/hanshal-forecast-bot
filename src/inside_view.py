@@ -19,6 +19,7 @@ load_dotenv()
 
 async def generate_inside_view(
     question_details: dict,
+    news_context: str | None = None,
     max_searches: int = 10,
 ) -> str:
     """Generate an inside view using a LangGraph agent.
@@ -37,9 +38,10 @@ async def generate_inside_view(
     
     today = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    # Fetch relevant news
-    print(f"Fetching news for inside view: {title}")
-    news_context = await call_asknews_async(question_details)
+    # Fetch relevant news unless pre-fetched context is provided.
+    if news_context is None:
+        print(f"Fetching news for inside view: {title}")
+        news_context = await call_asknews_async(question_details)
     
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_prompt.txt")
@@ -79,6 +81,7 @@ async def generate_inside_view(
 
 async def generate_inside_view_multiple_choice(
     question_details: dict,
+    news_context: str | None = None,
     max_searches: int = 10,
 ) -> str:
     """Generate an inside view for multiple choice questions."""
@@ -91,9 +94,10 @@ async def generate_inside_view_multiple_choice(
 
     options_str = ", ".join([str(o) for o in options]) if isinstance(options, (list, tuple)) else str(options)
 
-    # Fetch relevant news
-    print(f"Fetching news for inside view (MC): {title}")
-    news_context = await call_asknews_async(question_details)
+    # Fetch relevant news unless pre-fetched context is provided.
+    if news_context is None:
+        print(f"Fetching news for inside view (MC): {title}")
+        news_context = await call_asknews_async(question_details)
 
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_multiple_choice_prompt.txt")
@@ -133,6 +137,7 @@ async def generate_inside_view_multiple_choice(
 async def generate_inside_view_numeric(
     question_details: dict,
     *,
+    news_context: str | None = None,
     units: str,
     lower_bound_message: str,
     upper_bound_message: str,
@@ -147,9 +152,10 @@ async def generate_inside_view_numeric(
     fine_print = question_details.get("fine_print", "")
     today = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    # Fetch relevant news
-    print(f"Fetching news for inside view (Numeric): {title}")
-    news_context = await call_asknews_async(question_details)
+    # Fetch relevant news unless pre-fetched context is provided.
+    if news_context is None:
+        print(f"Fetching news for inside view (Numeric): {title}")
+        news_context = await call_asknews_async(question_details)
 
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_numeric_prompt.txt")

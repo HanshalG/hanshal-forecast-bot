@@ -5,6 +5,7 @@ import os
 import re
 import time
 import json
+import sys
 import numpy as np
 from typing import Any
 from asknews_sdk import AskNewsSDK
@@ -27,6 +28,9 @@ EXA_CONCURRENT_REQUESTS_LIMIT = 10
 # Reference units converted from per-1M to per-1k tokens.
 LLM_PRICES_PER_1K: dict[str, dict[str, float]] = {
     # Keys: model name; Values: {"input": price_per_1k_input_tokens, "output": price_per_1k_output_tokens}
+    "gpt-4o": {"input": 0.0025, "output": 0.0100},      # $2.50 / $10 per 1M
+    "o1-mini": {"input": 0.0011, "output": 0.0044},     # $1.10 / $4.40 per 1M
+    "o3-mini": {"input": 0.0011, "output": 0.0044},     # $1.10 / $4.40 per 1M
     "gpt-5.2": {"input": 0.00175, "output": 0.0140},     # $1.75 / $14 per 1M
     "gpt-5-mini": {"input": 0.00025, "output": 0.0020}, # $0.25 / $2 per 1M
     "gpt-5-nano": {"input": 0.00005, "output": 0.0004}, # $0.05 / $0.40 per 1M
@@ -53,7 +57,13 @@ def _canonicalize_model_for_pricing(model_name: str) -> str:
             return "gpt-5-mini"
         if name.startswith("gpt-5.2"):
             return "gpt-5.2"
-        return str(model_name)
+        if name.startswith("gpt-4o"):
+            return "gpt-4o"
+        if name.startswith("o1-mini"):
+            return "o1-mini"
+        if name.startswith("o3-mini"):
+            return "o3-mini"
+        return name
     except Exception:
         return str(model_name)
 
@@ -70,13 +80,309 @@ SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-5-nano")
 exa = Exa(api_key=EXA_API_KEY)
 
 
+def _supports_color() -> bool:
+    """Return True when ANSI colors should be used for terminal output."""
+    if os.getenv("NO_COLOR"):
+        return False
+    term = os.getenv("TERM", "").lower()
+    if term in {"", "dumb"}:
+        return False
+    return bool(getattr(sys.stdout, "isatty", lambda: False)())
+
+
+def _color_for_section(section: str) -> str:
+    """Map log section to ANSI color codes."""
+    section_norm = str(section).strip().lower()
+    # reasoning=cyan, tool-call=yellow, tool-result=green, model=magenta
+    if section_norm == "reasoning":
+        return "\033[36m"
+    if section_norm == "tool-call":
+        return "\033[33m"
+    if section_norm == "tool-result":
+        return "\033[32m"
+    if section_norm == "model":
+        return "\033[35m"
+    return ""
+
+
+def _colorize_line(section: str, text: str) -> str:
+    """Apply color to a log line when terminal supports ANSI colors."""
+    if not _supports_color():
+        return text
+    color = _color_for_section(section)
+    if not color:
+        return text
+    reset = "\033[0m"
+    return f"{color}{text}{reset}"
+
+
 def _stream_preview(value: Any, max_len: int = 700) -> str:
     """Make log output compact and single-line."""
     text = str(value).replace("\n", " ").strip()
     if len(text) > max_len:
-        return text
-        #return text[:max_len] + "...(truncated)"
+        return text[:max_len] + "...(truncated)"
     return text
+
+
+def _extract_text_fragments(value: Any, *, max_depth: int = 4) -> list[str]:
+    """Recursively collect text-like fields from mixed structures."""
+    if value is None or max_depth < 0:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        parts: list[str] = []
+        for item in value[:12]:
+            parts.extend(_extract_text_fragments(item, max_depth=max_depth - 1))
+        return parts
+    if isinstance(value, dict):
+        parts = []
+        preferred_keys = (
+            "text",
+            "summary_text",
+            "content",
+            "reason",
+            "analysis",
+            "output_text",
+        )
+        for key in preferred_keys:
+            if key in value:
+                parts.extend(_extract_text_fragments(value[key], max_depth=max_depth - 1))
+        if not parts:
+            for idx, item in enumerate(value.values()):
+                if idx >= 8:
+                    break
+                parts.extend(_extract_text_fragments(item, max_depth=max_depth - 1))
+        return parts
+
+    text_attr = getattr(value, "text", None)
+    if isinstance(text_attr, str):
+        return [text_attr]
+
+    content_attr = getattr(value, "content", None)
+    if content_attr is not None:
+        return _extract_text_fragments(content_attr, max_depth=max_depth - 1)
+
+    return []
+
+
+def _extract_reasoning_text(message: AIMessage) -> str:
+    """Extract visible reasoning summaries when provided by the model/runtime."""
+    reasoning_parts: list[str] = []
+
+    content = getattr(message, "content", None)
+    blocks = content if isinstance(content, (list, tuple)) else [content]
+    for block in blocks:
+        if isinstance(block, dict):
+            block_type = str(block.get("type", "")).lower()
+            if any(token in block_type for token in ("reason", "think", "analysis", "summary")):
+                reasoning_parts.extend(_extract_text_fragments(block.get("summary")))
+                reasoning_parts.extend(_extract_text_fragments(block.get("text")))
+                reasoning_parts.extend(_extract_text_fragments(block.get("content")))
+                reasoning_parts.extend(_extract_text_fragments(block.get("reasoning")))
+            continue
+
+        block_type = str(getattr(block, "type", "")).lower()
+        if any(token in block_type for token in ("reason", "think", "analysis", "summary")):
+            reasoning_parts.extend(_extract_text_fragments(getattr(block, "summary", None)))
+            reasoning_parts.extend(_extract_text_fragments(getattr(block, "text", None)))
+            reasoning_parts.extend(_extract_text_fragments(getattr(block, "content", None)))
+
+    for payload in (getattr(message, "additional_kwargs", None), getattr(message, "response_metadata", None)):
+        if not isinstance(payload, dict):
+            continue
+        for key in (
+            "reasoning",
+            "reasoning_content",
+            "reasoning_summary",
+            "analysis",
+            "thinking",
+            "summary",
+        ):
+            if key in payload:
+                reasoning_parts.extend(_extract_text_fragments(payload[key]))
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for part in reasoning_parts:
+        cleaned = re.sub(r"\s+", " ", str(part)).strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            deduped.append(cleaned)
+    return "\n".join(deduped)
+
+
+def _to_log_lines(text: Any, *, max_len: int = 700, max_lines: int = 8) -> list[str]:
+    """Split text into compact log-friendly lines with truncation."""
+    raw = str(text).strip()
+    if not raw:
+        return []
+
+    compact_lines = [re.sub(r"\s+", " ", line).strip() for line in raw.splitlines()]
+    compact_lines = [line for line in compact_lines if line]
+    if not compact_lines:
+        compact_lines = [re.sub(r"\s+", " ", raw).strip()]
+
+    out: list[str] = []
+    truncated = False
+    for line in compact_lines:
+        if len(line) <= max_len:
+            out.append(line)
+        else:
+            start = 0
+            while start < len(line):
+                out.append(line[start:start + max_len])
+                start += max_len
+                if len(out) >= max_lines:
+                    truncated = True
+                    break
+        if truncated or len(out) >= max_lines:
+            truncated = True
+            break
+
+    if truncated and out:
+        suffix = "...(truncated)"
+        if not out[-1].endswith(suffix):
+            trimmed = out[-1]
+            if len(trimmed) + len(suffix) + 1 > max_len:
+                keep = max(0, max_len - len(suffix) - 1)
+                trimmed = trimmed[:keep].rstrip()
+            out[-1] = f"{trimmed} {suffix}".strip()
+    return out
+
+
+def _print_log_block(label: str, section: str, title: str, lines: list[str] | None = None) -> None:
+    """Print one line per streamed chunk for cleaner terminal output."""
+    prefix = f"[{label}:{section}]"
+    if not lines:
+        line = f"{prefix} {title}"
+        print(_colorize_line(section, line), flush=True)
+        return
+    compact = " | ".join(line for line in lines if line)
+    if compact:
+        line = f"{prefix} {title}: {compact}"
+        print(_colorize_line(section, line), flush=True)
+    else:
+        line = f"{prefix} {title}"
+        print(_colorize_line(section, line), flush=True)
+
+
+def _print_log_line(label: str, section: str, text: str) -> None:
+    """Print a single colorized line for a section."""
+    line = f"[{label}:{section}] {text}"
+    print(_colorize_line(section, line), flush=True)
+
+
+def _print_section_continuation(section: str, text: str) -> None:
+    """Print a continuation line (without section prefix)."""
+    print(_colorize_line(section, text), flush=True)
+
+
+def _tool_args_as_lines(args: Any) -> list[str]:
+    """Render tool args as key=value lines."""
+    parsed = args
+    if isinstance(parsed, str):
+        try:
+            parsed = json.loads(parsed)
+        except Exception:
+            return [f"args={_stream_preview(parsed, 700)}"]
+
+    if not isinstance(parsed, dict):
+        return [f"args={_stream_preview(parsed, 700)}"]
+
+    lines: list[str] = []
+    for idx, (key, value) in enumerate(parsed.items()):
+        if idx >= 12:
+            lines.append("...=...(truncated)")
+            break
+        value_text = value
+        if isinstance(value_text, (dict, list, tuple)):
+            try:
+                value_text = json.dumps(value_text, ensure_ascii=True)
+            except Exception:
+                value_text = str(value_text)
+        lines.append(f"{key}={_stream_preview(value_text, 700)}")
+    return lines or ["args={}"]
+
+
+def _extract_llm_summary_from_tool_message(message: ToolMessage) -> str:
+    """Read llm_summary from tool-message context only (no synthetic parsing)."""
+    candidate_sources = [
+        getattr(message, "artifact", None),
+        getattr(message, "additional_kwargs", None),
+        getattr(message, "response_metadata", None),
+    ]
+
+    for source in candidate_sources:
+        if not isinstance(source, dict):
+            continue
+        value = source.get("llm_summary")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            nested = value.get("llm_summary")
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+        if isinstance(value, list):
+            text_parts = [str(v).strip() for v in value if str(v).strip()]
+            if text_parts:
+                return " ".join(text_parts)
+    return ""
+
+
+def _extract_raw_result_from_tool_message(message: ToolMessage) -> str:
+    """Read raw tool result from tool-message context when available."""
+    candidate_sources = [
+        getattr(message, "artifact", None),
+        getattr(message, "additional_kwargs", None),
+        getattr(message, "response_metadata", None),
+    ]
+
+    for source in candidate_sources:
+        if not isinstance(source, dict):
+            continue
+        for key in ("raw_result", "result", "raw_output", "tool_output"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def _extract_tool_input_from_tool_message(message: ToolMessage) -> dict[str, Any]:
+    """Read tool input payload from tool-message context when available."""
+    candidate_sources = [
+        getattr(message, "artifact", None),
+        getattr(message, "additional_kwargs", None),
+        getattr(message, "response_metadata", None),
+    ]
+
+    for source in candidate_sources:
+        if not isinstance(source, dict):
+            continue
+        value = source.get("tool_input")
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _clean_llm_summary_for_display(summary: str) -> str:
+    """Normalize summary text for display under a dedicated 'Summary:' heading."""
+    text = str(summary).strip()
+    if not text:
+        return ""
+
+    lines = [line.rstrip() for line in text.splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+
+    if lines:
+        first = lines[0].strip().lower()
+        if first in {"summary:", "summary for forecasting agent:", "forecasting summary:"}:
+            lines = lines[1:]
+            while lines and not lines[0].strip():
+                lines.pop(0)
+
+    return "\n".join(lines).strip()
 
 
 async def run_agent_with_streaming(
@@ -110,6 +416,7 @@ async def run_agent_with_streaming(
             if not isinstance(messages, list):
                 continue
 
+            new_messages: list[Any] = []
             for msg in messages:
                 msg_id = getattr(msg, "id", None)
                 fallback = f"{type(msg).__name__}:{_stream_preview(getattr(msg, 'content', msg), 200)}"
@@ -117,35 +424,110 @@ async def run_agent_with_streaming(
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
+                new_messages.append(msg)
+
+            # Phase 1: print reasoning first whenever available.
+            for msg in new_messages:
+                if not isinstance(msg, AIMessage):
+                    continue
+                reasoning_text = _extract_reasoning_text(msg).strip()
+                if reasoning_text:
+                    _print_log_block(
+                        label,
+                        "reasoning",
+                        "model reasoning",
+                        _to_log_lines(reasoning_text, max_len=700, max_lines=6),
+                    )
+
+            # Phase 2: then print tool calls.
+            for msg in new_messages:
+                if not isinstance(msg, AIMessage):
+                    continue
+                tool_calls = msg.tool_calls or []
+                if not tool_calls:
+                    continue
+                for tool_call in tool_calls:
+                    name = tool_call.get("name", "<unknown_tool>")
+                    args = tool_call.get("args", {})
+                    _print_log_line(label, "tool-call", str(name))
+                    for arg_line in _tool_args_as_lines(args):
+                        _print_section_continuation("tool-call", arg_line)
+
+            # Phase 3: then print tool results.
+            for msg in new_messages:
+                if not isinstance(msg, ToolMessage):
+                    continue
+                tool_name = getattr(msg, "name", None) or "tool"
+                tool_name_norm = str(tool_name).strip().lower()
+                tool_input = _extract_tool_input_from_tool_message(msg)
+                raw_result = _extract_raw_result_from_tool_message(msg).strip()
+                text = content_to_text(getattr(msg, "content", msg)).strip()
+                display_result = raw_result or text
+                summary = _extract_llm_summary_from_tool_message(msg)
+
+                if tool_name_norm in {"exa_search", "exa_answer_tool"}:
+                    _print_log_line(label, "tool-result", f"{tool_name}:")
+                    if tool_name_norm == "exa_search":
+                        _print_section_continuation(
+                            "tool-result",
+                            f"search_query={tool_input.get('search_query', '')}",
+                        )
+                        _print_section_continuation(
+                            "tool-result",
+                            f"guiding_highlights_query={tool_input.get('guiding_highlights_query', '')}",
+                        )
+                    else:
+                        _print_section_continuation(
+                            "tool-result",
+                            f"question={tool_input.get('question', '')}",
+                        )
+
+                    clean_summary = _clean_llm_summary_for_display(summary or text)
+                    _print_section_continuation("tool-result", "Summary:")
+                    if clean_summary:
+                        for line in clean_summary.splitlines():
+                            _print_section_continuation("tool-result", line)
+                    continue
+
+                if not display_result:
+                    continue
+                _print_log_line(
+                    label,
+                    "tool-result",
+                    f"{tool_name}: {_stream_preview(display_result, 700)}",
+                )
+                if summary:
+                    _print_section_continuation("tool-result", f"llm_summary={summary}")
+
+            # Phase 4: finally print assistant text and other non-human messages.
+            for msg in new_messages:
+                if isinstance(msg, ToolMessage):
+                    continue
 
                 if isinstance(msg, AIMessage):
                     tool_calls = msg.tool_calls or []
                     if tool_calls:
-                        parts = []
-                        for tool_call in tool_calls:
-                            name = tool_call.get("name", "<unknown_tool>")
-                            args = tool_call.get("args", {})
-                            parts.append(f"{name}(args={_stream_preview(args, 220)})")
-                        print(f"[{label}:model] tool calls -> {'; '.join(parts)}", flush=True)
                         continue
-
                     text = message_to_text(msg).strip()
                     if text:
-                        print(f"[{label}:model] {_stream_preview(text)}", flush=True)
-                    continue
-
-                if isinstance(msg, ToolMessage):
-                    tool_name = getattr(msg, "name", None) or "tool"
-                    text = content_to_text(getattr(msg, "content", msg)).strip()
-                    if text:
-                        print(f"[{label}:tool:{tool_name}] {_stream_preview(text)}", flush=True)
+                        normalized_text = re.sub(r"\s+", " ", text).strip()
+                        _print_log_line(
+                            label,
+                            "model",
+                            f"response={normalized_text}",
+                        )
                     continue
 
                 text = content_to_text(getattr(msg, "content", msg)).strip()
                 if text:
                     role = getattr(msg, "type", type(msg).__name__).lower()
                     if role != "human":
-                        print(f"[{label}:{role}] {_stream_preview(text)}", flush=True)
+                        _print_log_block(
+                            label,
+                            role,
+                            f"{role} message",
+                            _to_log_lines(text, max_len=700, max_lines=6),
+                        )
 
     if final_output is None:
         raise RuntimeError(f"{label}: no final output received from stream")
@@ -509,10 +891,17 @@ def read_prompt(filename: str) -> str:
     except FileNotFoundError:
         raise FileNotFoundError(f"Prompt file not found: {path}")
 
-async def call_llm(prompt: str, model: str, temperature: float, reasoning_effort: str = "medium") -> str:
+async def call_llm(
+    prompt: str,
+    model: str,
+    temperature: float,
+    reasoning_effort: str = "medium",
+    component: str = "call_llm",
+) -> str:
     """
     Makes a completion request to OpenRouter (OpenAI SDK compatible) with concurrent
     request limiting and retry/backoff for transient API/JSON decode errors.
+    Token usage is attributed to the provided component bucket.
     """
     if not OPENROUTER_API_KEY:
         raise ValueError("OPENROUTER_API_KEY environment variable is not set")
@@ -548,6 +937,8 @@ async def call_llm(prompt: str, model: str, temperature: float, reasoning_effort
                         prompt_tokens = getattr(usage, "prompt_tokens", None) or getattr(usage, "input_tokens", None)
                         completion_tokens = getattr(usage, "completion_tokens", None) or getattr(usage, "output_tokens", None)
                         total_tokens = getattr(usage, "total_tokens", None)
+                        if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+                            total_tokens = int(prompt_tokens or 0) + int(completion_tokens or 0)
                 except Exception:
                     pass
 
@@ -569,9 +960,9 @@ async def call_llm(prompt: str, model: str, temperature: float, reasoning_effort
                     from src.token_cost import add_token_usage, get_total_usage
                     pt = int(prompt_tokens or 0)
                     ct = int(completion_tokens or 0)
-                    tt = int(total_tokens or 0)
+                    tt = int(total_tokens) if total_tokens is not None else pt + ct
                     cost = float(est_cost_usd or 0.0)
-                    add_token_usage("call_llm", pt, ct, tt, cost)
+                    add_token_usage(component, pt, ct, tt, cost)
                     # Get running total from global tracker
                     total_usage = get_total_usage()
                     total_after_str = f"${total_usage['cost']:.4f}"
@@ -585,9 +976,9 @@ async def call_llm(prompt: str, model: str, temperature: float, reasoning_effort
                     tt_str = str(total_tokens) if total_tokens is not None else "?"
                     cost_str = (f"${est_cost_usd:.4f}" if est_cost_usd is not None else "n/a")
                     print(
-                        f"LLM call | model={model} temp={temperature} "
+                        f"LLM call | component={component} model={model} temp={temperature} reasoning={reasoning_effort} "
                         f"tokens: prompt={pt_str} completion={ct_str} total={tt_str} "
-                        f"time={elapsed_s:.2f}s est_cost={cost_str} total_cost={total_after_str}"
+                        f"time={elapsed_s:.2f}s est_cost={cost_str} running_total_cost={total_after_str}"
                     )
                 except Exception:
                     # Best-effort logging; never fail the call due to logging

@@ -23,7 +23,7 @@ Today is {today}.
  You have access to the following tools:
  1.  **Exa Answer Tool (`exa_answer_tool`)**: Use this to find specific answers to questions, verify claims, or get recent historical data. Excellent for finding authoritative sources and statistics.
  2.  **Exa Search (`exa_search`)**: Use this for broader searches, recent news, or when you need multiple perspectives on historical trends. Returns titles, URLs, and key highlights.
- 3.  **Python REPL (`python_repl`)**: Use this to perform ANY calculations. Do NOT do math in your head.
+ 3.  **Python REPL (`python_repl`)**: Use this to perform ANY calculations. Do NOT do math in your head. You MUST `print` the intended results; otherwise, the agent will not see them.
  
  **When to use tools:**
  *   **Use `exa_search` primarily** to research reference classes and find historical base rates. It provides concise highlights that are perfect for this analysis.

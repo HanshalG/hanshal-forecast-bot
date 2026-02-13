@@ -10,7 +10,7 @@ from src.metaculus_utils import get_open_question_ids_from_tournament
 
 # The example questions can be used for testing your bot. (note that question and post id are not always the same)
 EXAMPLE_QUESTIONS = [  # (question_id, post_id)
-    (41904, 41904),
+    (40966, 40966),
 ]
 
 ################### FORECASTING ###################

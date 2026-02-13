@@ -23,7 +23,7 @@ Today is {today}.
  You have access to the following tools:
  1.  **Exa Answer Tool (`exa_answer_tool`)**: Use this to find specific answers to questions, verify claims, or get recent data. Excellent for finding authoritative sources.
  2.  **Exa Search (`exa_search`)**: Use this for broader searches, recent news, or when you need multiple perspectives on current events. Returns titles, URLs, and key highlights.
- 3.  **Python REPL (`python_repl`)**: Use this to perform ANY calculations. Do NOT do math in your head.
+ 3.  **Python REPL (`python_repl`)**: Use this to perform ANY calculations. Do NOT do math in your head. You MUST `print` the intended results; otherwise, the agent will not see them.
 
  **When to use tools:**
  *   **Use `exa_search` primarily** to find the latest news and specific details relevant to the question.
@@ -61,4 +61,3 @@ Inside view calibration:
 
 Inside View Prediction:
 [Provide your inside view probability here (e.g., 42%). It is not necessary for the prediction to be a neat multiple of 5%.]
-

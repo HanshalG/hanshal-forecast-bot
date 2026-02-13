@@ -3,6 +3,8 @@ import traceback
 import datetime
 import os
 import uuid
+import json
+import re
 from typing import Tuple, List, Dict
 
 import numpy as np
@@ -24,6 +26,7 @@ from src.utils import (
     extract_option_probabilities_from_response,
     read_prompt,
     call_llm,
+    call_asknews_async,
 )
 from src.metaculus_utils import (
     forecast_is_already_made,
@@ -42,6 +45,42 @@ SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "openai/gpt-5-nano")
 RUN_ID = os.getenv("RUN_ID") or f"run-{uuid.uuid4()}"
 # This will be set by callers before forecasting session begins as needed
 TOURNAMENT_ID = None
+
+
+def _try_parse_json_dict_from_text(text: str) -> dict | None:
+    if not isinstance(text, str):
+        return None
+
+    candidates = [text.strip()]
+    match = re.search(r"\{[\s\S]*\}", text)
+    if match:
+        candidates.append(match.group(0).strip())
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+    return None
+
+
+def _normalize_final_forecast_data(final_forecast_data: dict) -> dict:
+    if not isinstance(final_forecast_data, dict):
+        return {}
+
+    if any(k in final_forecast_data for k in ("probability", "percentiles", "probabilities")):
+        return final_forecast_data
+
+    for key in ("rationale", "raw_output", "result", "raw_result"):
+        parsed = _try_parse_json_dict_from_text(final_forecast_data.get(key, ""))
+        if parsed is not None:
+            return parsed
+
+    return final_forecast_data
 
 
 def generate_multiple_choice_forecast(options, option_probabilities) -> dict:
@@ -81,6 +120,27 @@ async def get_binary_prediction(
     max_inside_searches: int = 10,
     prediction_market_data: str = "None",
 ) -> Tuple[float, str]:
+    shared_news_context_task: asyncio.Task[str] | None = None
+    shared_news_context_lock = asyncio.Lock()
+
+    async def _get_shared_news_context() -> str | None:
+        nonlocal shared_news_context_task
+        if num_runs <= 1:
+            return None
+
+        if shared_news_context_task is None:
+            async with shared_news_context_lock:
+                if shared_news_context_task is None:
+                    print("Fetching AskNews once for all binary runs...")
+                    shared_news_context_task = asyncio.create_task(call_asknews_async(question_details))
+
+        try:
+            return await shared_news_context_task
+        except Exception:
+            async with shared_news_context_lock:
+                if shared_news_context_task is not None and shared_news_context_task.done():
+                    shared_news_context_task = None
+            raise
 
     async def get_probability_and_comment(n) -> Tuple[float, str]:
         # Per-run retry logic (2 retries -> up to 3 attempts total)
@@ -91,15 +151,28 @@ async def get_binary_prediction(
             try:
                 # Generate outside view per run
                 print(f"Generating outside view {n+1} (attempt {attempts})")
+
                 outside_view_text = await generate_outside_view(question_details, max_searches=max_outside_searches)
                 
+                print("\n" + "#" * 80 + "\n")
                 print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text}\"")
+                print("\n" + "#" * 80 + "\n")
 
                 print(f"Generating inside view {n+1} (attempt {attempts})")
-                inside_view_text = await generate_inside_view(question_details)
-                print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text}\"")
+                shared_news_context = await _get_shared_news_context()
+                inside_view_text = await generate_inside_view(
+                    question_details,
+                    news_context=shared_news_context,
+                    max_searches=max_inside_searches,
+                )
 
+                print("\n" + "#" * 80 + "\n")
+                print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text}\"")
+                print("\n" + "#" * 80 + "\n")
+
+                print("\n" + "#" * 80 + "\n")
                 print("Prediction Market Data:", prediction_market_data)
+                print("\n" + "#" * 80 + "\n")
 
                 # Run Final Forecast Agent per run
                 print(f"Running Final Forecast Agent for run {n+1}...")
@@ -109,7 +182,11 @@ async def get_binary_prediction(
                         inside_view_text=inside_view_text,
                         prediction_market_data=prediction_market_data,
                 )
+                final_forecast_data = _normalize_final_forecast_data(final_forecast_data)
+
+                print("\n" + "#" * 80 + "\n")
                 print(f"Final Forecast Agent output for run {n+1}: {final_forecast_data}")
+                print("\n" + "#" * 80 + "\n")
                 
                 # Robust parsing of final forecast data - raise errors instead of using fallbacks
                 # Extract probability
@@ -209,6 +286,27 @@ async def get_numeric_prediction(
     max_inside_searches: int = 10,
     prediction_market_data: str = "",
 ) -> Tuple[List[float], str]:
+    shared_news_context_task: asyncio.Task[str] | None = None
+    shared_news_context_lock = asyncio.Lock()
+
+    async def _get_shared_news_context() -> str | None:
+        nonlocal shared_news_context_task
+        if num_runs <= 1:
+            return None
+
+        if shared_news_context_task is None:
+            async with shared_news_context_lock:
+                if shared_news_context_task is None:
+                    print("Fetching AskNews once for all numeric runs...")
+                    shared_news_context_task = asyncio.create_task(call_asknews_async(question_details))
+
+        try:
+            return await shared_news_context_task
+        except Exception:
+            async with shared_news_context_lock:
+                if shared_news_context_task is not None and shared_news_context_task.done():
+                    shared_news_context_task = None
+            raise
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     question_type = question_details["type"]
@@ -251,8 +349,10 @@ async def get_numeric_prediction(
                     pass
                     
                 print(f"Generating inside view {n+1} (attempt {attempts})")
+                shared_news_context = await _get_shared_news_context()
                 inside_view_text = await generate_inside_view_numeric(
                     question_details,
+                    news_context=shared_news_context,
                     units=unit_of_measure,
                     lower_bound_message=lower_bound_message,
                     upper_bound_message=upper_bound_message,
@@ -272,6 +372,7 @@ async def get_numeric_prediction(
                     inside_view_text=inside_view_text,
                     prediction_market_data=prediction_market_data,
                 )
+                final_forecast_data = _normalize_final_forecast_data(final_forecast_data)
                 print(f"Final Forecast Agent output for run {n+1}: {final_forecast_data}")
                 
                 # Parse percentiles from agent output
@@ -378,6 +479,27 @@ async def get_multiple_choice_prediction(
     max_inside_searches: int = 10,
     prediction_market_data: str = "",
 ) -> Tuple[Dict[str, float], str]:
+    shared_news_context_task: asyncio.Task[str] | None = None
+    shared_news_context_lock = asyncio.Lock()
+
+    async def _get_shared_news_context() -> str | None:
+        nonlocal shared_news_context_task
+        if num_runs <= 1:
+            return None
+
+        if shared_news_context_task is None:
+            async with shared_news_context_lock:
+                if shared_news_context_task is None:
+                    print("Fetching AskNews once for all multiple-choice runs...")
+                    shared_news_context_task = asyncio.create_task(call_asknews_async(question_details))
+
+        try:
+            return await shared_news_context_task
+        except Exception:
+            async with shared_news_context_lock:
+                if shared_news_context_task is not None and shared_news_context_task.done():
+                    shared_news_context_task = None
+            raise
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     options = question_details["options"]
@@ -397,8 +519,10 @@ async def get_multiple_choice_prediction(
                     pass
                     
                 print(f"Generating inside view {n+1} (attempt {attempts})")
+                shared_news_context = await _get_shared_news_context()
                 inside_view_text = await generate_inside_view_multiple_choice(
                     question_details,
+                    news_context=shared_news_context,
                     max_searches=max_inside_searches,
                 )
                 try:
@@ -414,6 +538,7 @@ async def get_multiple_choice_prediction(
                     inside_view_text=inside_view_text,
                     prediction_market_data=prediction_market_data,
                 )
+                final_forecast_data = _normalize_final_forecast_data(final_forecast_data)
                 print(f"Final Forecast Agent output for run {n+1}: {final_forecast_data}")
                 
                 # Parse probabilities from agent output
@@ -539,105 +664,82 @@ async def forecast_individual_question(
     get_prediction_market: bool = False,
 ) -> str:
     # Reset token usage at start of each forecast
-    from src.token_cost import reset_usage, print_total_usage
-    reset_usage()
-    
-    post_details = get_post_details(post_id)
-    question_details = post_details["question"]
-    title = question_details["title"]
-    question_type = question_details["type"]
+    from src.token_cost import (
+        clear_usage_scope,
+        print_total_usage,
+        reset_usage,
+        reset_usage_scope,
+        set_usage_scope,
+    )
+    token_scope = f"question-{question_id}-{post_id}-{uuid.uuid4().hex}"
+    scope_token = set_usage_scope(token_scope)
 
-    print(f"Forecasting question: {title} ({question_type})")
-
-    summary_of_forecast = ""
-    summary_of_forecast += f"-----------------------------------------------\nQuestion: {title}\n"
-    summary_of_forecast += f"URL: https://www.metaculus.com/questions/{post_id}/\n"
-
-    if question_type == "multiple_choice":
-        options = question_details["options"]
-        print(f"Options: {options}")
-        summary_of_forecast += f"Options: {options}\n"
-
-    if (
-        forecast_is_already_made(post_details)
-        and skip_previously_forecasted_questions == True
-    ):
-        print(f"Skipped: Forecast already made")
-        summary_of_forecast += f"Skipped: Forecast already made\n"
-        return summary_of_forecast
-
-    # Fetch prediction market data if requested
-    prediction_market_data_str = ""
-    if get_prediction_market:
-        print(f"Fetching prediction market data for: {title}")
-        try:
-            markets = await get_prediction_market_data(title)
-            prediction_market_data_str = format_semipublic_market_data(markets)
-            print(f"Prediction Market Data:\n{prediction_market_data_str[:200]}...")
-            summary_of_forecast += f"\nPrediction Markets checked:\n{prediction_market_data_str}\n" 
-        except Exception as e:
-            print(f"Error fetching prediction market data: {e}")
-            summary_of_forecast += f"\nPrediction Markets check failed: {e}\n"
-
-    if question_type == "binary":
-        forecast, comment = await get_binary_prediction(
-            question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
-        )
-    elif question_type == "numeric":
-        forecast, comment = await get_numeric_prediction(
-            question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
-        )
-    elif question_type == "discrete":
-        forecast, comment = await get_numeric_prediction(
-            question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
-        )
-    elif question_type == "multiple_choice":
-        forecast, comment = await get_multiple_choice_prediction(
-            question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
-        )
-    else:
-        raise ValueError(f"Unknown question type: {question_type}")
-
-    print(f"-----------------------------------------------\nPost {post_id} Question {question_id}:\n")
-    print(f"Forecast for post {post_id} (question {question_id}):\n{forecast}")
-    print(f"Comment for post {post_id} (question {question_id}):\n{comment}")
-
-    # Log forecast event (pre-submission)
     try:
-        event = {
-            "run_id": RUN_ID,
-            "tournament_id": TOURNAMENT_ID,
-            "question_id": question_id,
-            "post_id": post_id,
-            "question_title": title,
-            "question_type": question_type,
-            "model": SUMMARY_MODEL,
-            "num_runs": num_runs_per_question,
-            "forecast": forecast,
-            "comment": comment,
-            "submit_attempted": bool(submit_prediction),
-            "submitted": False,
-        }
-        log_forecast_event(event)
-    except Exception as e:
-        print(f"Logging error (pre-submission): {e}")
+        reset_usage()
+        
+        post_details = get_post_details(post_id)
+        question_details = post_details["question"]
+        title = question_details["title"]
+        question_type = question_details["type"]
 
-    if question_type == "numeric" or question_type == "discrete":
-        summary_of_forecast += f"Forecast: {str(forecast)[:200]}...\n"
-    else:
-        summary_of_forecast += f"Forecast: {forecast}\n"
+        print(f"Forecasting question: {title} ({question_type})")
 
-    summary_of_forecast += f"Comment:\n```\n{comment[:200]}...\n```\n\n"
+        summary_of_forecast = ""
+        summary_of_forecast += f"-----------------------------------------------\nQuestion: {title}\n"
+        summary_of_forecast += f"URL: https://www.metaculus.com/questions/{post_id}/\n"
 
-    if submit_prediction == True:
-        forecast_payload = create_forecast_payload(forecast, question_type)
-        post_question_prediction(question_id, forecast_payload)
-        post_question_comment(post_id, comment)
-        summary_of_forecast += "Posted: Forecast was posted to Metaculus.\n"
+        if question_type == "multiple_choice":
+            options = question_details["options"]
+            print(f"Options: {options}")
+            summary_of_forecast += f"Options: {options}\n"
 
-        # Log successful submission
+        if (
+            forecast_is_already_made(post_details)
+            and skip_previously_forecasted_questions == True
+        ):
+            print(f"Skipped: Forecast already made")
+            summary_of_forecast += f"Skipped: Forecast already made\n"
+            return summary_of_forecast
+
+        # Fetch prediction market data if requested
+        prediction_market_data_str = ""
+        if get_prediction_market:
+            print(f"Fetching prediction market data for: {title}")
+            try:
+                markets = await get_prediction_market_data(title)
+                prediction_market_data_str = format_semipublic_market_data(markets)
+                print(f"Prediction Market Data:\n{prediction_market_data_str[:200]}...")
+                summary_of_forecast += f"\nPrediction Markets checked:\n{prediction_market_data_str}\n" 
+            except Exception as e:
+                print(f"Error fetching prediction market data: {e}")
+                summary_of_forecast += f"\nPrediction Markets check failed: {e}\n"
+
+        if question_type == "binary":
+            forecast, comment = await get_binary_prediction(
+                question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
+            )
+        elif question_type == "numeric":
+            forecast, comment = await get_numeric_prediction(
+                question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
+            )
+        elif question_type == "discrete":
+            forecast, comment = await get_numeric_prediction(
+                question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
+            )
+        elif question_type == "multiple_choice":
+            forecast, comment = await get_multiple_choice_prediction(
+                question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
+            )
+        else:
+            raise ValueError(f"Unknown question type: {question_type}")
+
+        print(f"-----------------------------------------------\nPost {post_id} Question {question_id}:\n")
+        print(f"Forecast for post {post_id} (question {question_id}):\n{forecast}")
+        print(f"Comment for post {post_id} (question {question_id}):\n{comment}")
+
+        # Log forecast event (pre-submission)
         try:
-            submitted_event = {
+            event = {
                 "run_id": RUN_ID,
                 "tournament_id": TOURNAMENT_ID,
                 "question_id": question_id,
@@ -648,17 +750,53 @@ async def forecast_individual_question(
                 "num_runs": num_runs_per_question,
                 "forecast": forecast,
                 "comment": comment,
-                "submit_attempted": True,
-                "submitted": True,
+                "submit_attempted": bool(submit_prediction),
+                "submitted": False,
             }
-            log_forecast_event(submitted_event)
+            log_forecast_event(event)
         except Exception as e:
-            print(f"Logging error (post-submission): {e}")
+            print(f"Logging error (pre-submission): {e}")
 
-    # Print token usage summary for this forecast
-    print_total_usage()
+        if question_type == "numeric" or question_type == "discrete":
+            summary_of_forecast += f"Forecast: {str(forecast)[:200]}...\n"
+        else:
+            summary_of_forecast += f"Forecast: {forecast}\n"
 
-    return summary_of_forecast
+        summary_of_forecast += f"Comment:\n```\n{comment[:200]}...\n```\n\n"
+
+        if submit_prediction == True:
+            forecast_payload = create_forecast_payload(forecast, question_type)
+            post_question_prediction(question_id, forecast_payload)
+            post_question_comment(post_id, comment)
+            summary_of_forecast += "Posted: Forecast was posted to Metaculus.\n"
+
+            # Log successful submission
+            try:
+                submitted_event = {
+                    "run_id": RUN_ID,
+                    "tournament_id": TOURNAMENT_ID,
+                    "question_id": question_id,
+                    "post_id": post_id,
+                    "question_title": title,
+                    "question_type": question_type,
+                    "model": SUMMARY_MODEL,
+                    "num_runs": num_runs_per_question,
+                    "forecast": forecast,
+                    "comment": comment,
+                    "submit_attempted": True,
+                    "submitted": True,
+                }
+                log_forecast_event(submitted_event)
+            except Exception as e:
+                print(f"Logging error (post-submission): {e}")
+
+        # Print token usage summary for this forecast
+        print_total_usage()
+
+        return summary_of_forecast
+    finally:
+        clear_usage_scope(scope=token_scope)
+        reset_usage_scope(scope_token)
 
 
 async def forecast_questions(
