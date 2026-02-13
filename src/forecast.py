@@ -5,7 +5,7 @@ import os
 import uuid
 import json
 import re
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Any
 
 import numpy as np
 
@@ -37,7 +37,7 @@ from src.metaculus_utils import (
     get_post_details,
 )
 from src.forecast_logger import log_forecast_event
-from src.agent_infrastructure import TOOL_CALL_COUNTS
+from src.agent_infrastructure import TOOL_CALL_COUNTS, TOOL_CACHE_HIT_COUNTS, TOOL_CACHE_MISS_COUNTS
 from src.prediction_market_check import get_prediction_market_data, format_semipublic_market_data
 
 # Module-level identifiers for logging context
@@ -45,6 +45,25 @@ SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "openai/gpt-5-nano")
 RUN_ID = os.getenv("RUN_ID") or f"run-{uuid.uuid4()}"
 # This will be set by callers before forecasting session begins as needed
 TOURNAMENT_ID = None
+
+
+def _snapshot_counter(counter: dict[str, int]) -> dict[str, int]:
+    return {str(k): int(v) for k, v in counter.items()}
+
+
+def _diff_counter(after: dict[str, int], before: dict[str, int]) -> dict[str, int]:
+    keys = set(before.keys()) | set(after.keys())
+    return {k: int(after.get(k, 0) - before.get(k, 0)) for k in sorted(keys)}
+
+
+def _empty_prediction_diagnostics() -> dict[str, Any]:
+    return {
+        "outside_view_text": None,
+        "inside_view_text": None,
+        "final_forecast_analysis": None,
+        "all_probabilities": None,
+        "forecast_stddev": None,
+    }
 
 
 def _try_parse_json_dict_from_text(text: str) -> dict | None:
@@ -119,7 +138,7 @@ async def get_binary_prediction(
     max_outside_searches: int = 10,
     max_inside_searches: int = 10,
     prediction_market_data: str = "None",
-) -> Tuple[float, str]:
+) -> Tuple[float, str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
     shared_news_context_lock = asyncio.Lock()
 
@@ -142,7 +161,7 @@ async def get_binary_prediction(
                     shared_news_context_task = None
             raise
 
-    async def get_probability_and_comment(n) -> Tuple[float, str]:
+    async def get_probability_and_comment(n) -> Tuple[float, str, str, str]:
         # Per-run retry logic (2 retries -> up to 3 attempts total)
         attempts = 0
         last_err: Exception | None = None
@@ -216,7 +235,7 @@ async def get_binary_prediction(
                 if not final_forecast_text:
                     raise ValueError(f"No rationale found in forecast data: {final_forecast_data}")
 
-                return probability, final_forecast_text
+                return probability, final_forecast_text, outside_view_text, inside_view_text
 
             except Exception as e:
                 print(f"Error in run {n+1} (attempt {attempts}): {e}")
@@ -231,15 +250,17 @@ async def get_binary_prediction(
         return_exceptions=True,
     )
     
-    successes: list[tuple[float, str]] = [r for r in results if not isinstance(r, Exception)]
+    successes: list[tuple[float, str, str, str]] = [r for r in results if not isinstance(r, Exception)]
     
     if len(successes) == 0:
         first_err = next((r for r in results if isinstance(r, Exception)), RuntimeError("All runs failed"))
         raise first_err
 
-    sorted_successes = sorted(successes, key=lambda x: x[0], reverse=True)
-    probs = np.array([p for p, r in sorted_successes])
-    rationales = [r for p, r in sorted_successes]
+    probs = np.array([p for p, _, _, _ in successes], dtype=float)
+    rationales = [r for _, r, _, _ in successes]
+    outside_views = [o for _, _, o, _ in successes]
+    inside_views = [i for _, _, _, i in successes]
+    run_probabilities = [float(p) for p in probs.tolist()]
 
     print("Probabilities from runs:")
     for p in probs:
@@ -253,6 +274,8 @@ async def get_binary_prediction(
     best_rationale = rationales[closest_index]
 
     print(f"Median probability: {median_probability:.3f}")
+    probability_stddev = float(np.std(probs))
+    print(f"Run probability stddev: {probability_stddev:.4f}")
     print(f"Best Rationale: {best_rationale[:50]}...") # Print a snippet
 
     # Generate Final Comment Summary using gpt-5-nano
@@ -276,7 +299,14 @@ async def get_binary_prediction(
     if not final_comment:
          final_comment = best_rationale
 
-    return median_probability, final_comment
+    diagnostics = {
+        "outside_view_text": outside_views[int(closest_index)] if outside_views else None,
+        "inside_view_text": inside_views[int(closest_index)] if inside_views else None,
+        "final_forecast_analysis": best_rationale,
+        "all_probabilities": run_probabilities,
+        "forecast_stddev": probability_stddev,
+    }
+    return median_probability, final_comment, diagnostics
 
 
 async def get_numeric_prediction(
@@ -285,7 +315,7 @@ async def get_numeric_prediction(
     max_outside_searches: int = 10,
     max_inside_searches: int = 10,
     prediction_market_data: str = "",
-) -> Tuple[List[float], str]:
+) -> Tuple[List[float], str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
     shared_news_context_lock = asyncio.Lock()
 
@@ -334,7 +364,7 @@ async def get_numeric_prediction(
     else:
         lower_bound_message = f"The outcome can not be lower than {lower_bound}."
 
-    async def get_numeric_cdf_and_comment(n) -> Tuple[List[float], str]:
+    async def get_numeric_cdf_and_comment(n) -> Tuple[List[float], str, str, str]:
         attempts = 0
         last_err: Exception | None = None
         while attempts < 3:
@@ -407,7 +437,7 @@ async def get_numeric_prediction(
                     cdf_size,
                 )
 
-                return cdf, rationale
+                return cdf, rationale, outside_view_text, inside_view_text
                 
             except Exception as e:
                 print(f"Error in run {n+1} (attempt {attempts}): {e}")
@@ -420,7 +450,7 @@ async def get_numeric_prediction(
         *[get_numeric_cdf_and_comment(n) for n in range(num_runs)], return_exceptions=True
     )
     
-    successes: list[tuple[List[float], str]] = [r for r in cdf_results if not isinstance(r, Exception)]
+    successes: list[tuple[List[float], str, str, str]] = [r for r in cdf_results if not isinstance(r, Exception)]
     
     if len(successes) == 0:
         first_err = next((r for r in cdf_results if isinstance(r, Exception)), RuntimeError("All numeric runs failed"))
@@ -428,6 +458,8 @@ async def get_numeric_prediction(
 
     cdfs: List[List[float]] = [pair[0] for pair in successes]
     rationales = [pair[1] for pair in successes]
+    outside_views = [pair[2] for pair in successes]
+    inside_views = [pair[3] for pair in successes]
     
     all_cdfs = np.array(cdfs)
     median_cdf: List[float] = np.median(all_cdfs, axis=0).tolist()
@@ -446,6 +478,9 @@ async def get_numeric_prediction(
     best_rationale = rationales[closest_index]
 
     print(f"Median CDF calculated (length: {len(median_cdf)})")
+    cdf_pointwise_std = np.std(all_cdfs, axis=0)
+    cdf_stddev_mean = float(np.mean(cdf_pointwise_std))
+    print(f"Mean pointwise CDF stddev across runs: {cdf_stddev_mean:.6f}")
     print(f"Best Rationale: {best_rationale[:50]}...")
 
     # Generate Final Comment Summary using gpt-5-nano
@@ -469,7 +504,14 @@ async def get_numeric_prediction(
     if not final_comment:
         final_comment = best_rationale
 
-    return median_cdf, final_comment
+    diagnostics = {
+        "outside_view_text": outside_views[closest_index] if outside_views else None,
+        "inside_view_text": inside_views[closest_index] if inside_views else None,
+        "final_forecast_analysis": best_rationale,
+        "all_probabilities": cdfs,
+        "forecast_stddev": cdf_stddev_mean,
+    }
+    return median_cdf, final_comment, diagnostics
 
 
 async def get_multiple_choice_prediction(
@@ -478,7 +520,7 @@ async def get_multiple_choice_prediction(
     max_outside_searches: int = 10,
     max_inside_searches: int = 10,
     prediction_market_data: str = "",
-) -> Tuple[Dict[str, float], str]:
+) -> Tuple[Dict[str, float], str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
     shared_news_context_lock = asyncio.Lock()
 
@@ -504,7 +546,7 @@ async def get_multiple_choice_prediction(
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     options = question_details["options"]
 
-    async def ask_inside_view_mc(n) -> Tuple[Dict[str, float], str]:
+    async def ask_inside_view_mc(n) -> Tuple[Dict[str, float], str, str, str]:
         attempts = 0
         last_err: Exception | None = None
         while attempts < 3:
@@ -560,7 +602,7 @@ async def get_multiple_choice_prediction(
                 if not rationale:
                     raise ValueError(f"No rationale found in forecast data: {final_forecast_data}")
 
-                return probability_yes_per_category, rationale
+                return probability_yes_per_category, rationale, outside_view_text, inside_view_text
                 
             except Exception as e:
                 print(f"Error in run {n+1} (attempt {attempts}): {e}")
@@ -573,7 +615,7 @@ async def get_multiple_choice_prediction(
         *[ask_inside_view_mc(n) for n in range(num_runs)], return_exceptions=True
     )
     
-    successes: list[tuple[Dict[str, float], str]] = [r for r in mc_results if not isinstance(r, Exception)]
+    successes: list[tuple[Dict[str, float], str, str, str]] = [r for r in mc_results if not isinstance(r, Exception)]
     
     if len(successes) == 0:
         first_err = next((r for r in mc_results if isinstance(r, Exception)), RuntimeError("All MC runs failed"))
@@ -581,6 +623,8 @@ async def get_multiple_choice_prediction(
 
     probability_yes_per_category_dicts: List[Dict[str, float]] = [pair[0] for pair in successes]
     rationales = [pair[1] for pair in successes]
+    outside_views = [pair[2] for pair in successes]
+    inside_views = [pair[3] for pair in successes]
 
     # --- Trimmed Linear Opinion Pool ---
     # Build matrix of shape (num_runs, num_options) in the provided option order
@@ -619,6 +663,9 @@ async def get_multiple_choice_prediction(
 
     print(f"Trimmed mean probabilities (kept {keep_count}/{n_runs} runs)")
     print(f"Final probabilities: {final_probs_dict}")
+    option_std_values = np.std(run_matrix, axis=0)
+    mc_stddev_mean = float(np.mean(option_std_values))
+    print(f"Mean option-probability stddev across runs: {mc_stddev_mean:.6f}")
 
     # Select rationale closest to pooled vector
     dists_to_pooled = [float(np.linalg.norm(run_matrix[i] - pooled_vector)) for i in range(n_runs)]
@@ -648,7 +695,14 @@ async def get_multiple_choice_prediction(
     if not final_comment:
         final_comment = best_rationale
         
-    return final_probs_dict, final_comment
+    diagnostics = {
+        "outside_view_text": outside_views[closest_index] if outside_views else None,
+        "inside_view_text": inside_views[closest_index] if inside_views else None,
+        "final_forecast_analysis": best_rationale,
+        "all_probabilities": probability_yes_per_category_dicts,
+        "forecast_stddev": mc_stddev_mean,
+    }
+    return final_probs_dict, final_comment, diagnostics
 
 
 ################### FORECASTING ###################
@@ -666,16 +720,27 @@ async def forecast_individual_question(
     # Reset token usage at start of each forecast
     from src.token_cost import (
         clear_usage_scope,
+        get_total_usage,
+        get_usage_breakdown,
         print_total_usage,
         reset_usage,
         reset_usage_scope,
         set_usage_scope,
     )
+    from src.utils import ASKNEWS_STATS
+
     token_scope = f"question-{question_id}-{post_id}-{uuid.uuid4().hex}"
     scope_token = set_usage_scope(token_scope)
 
     try:
         reset_usage()
+        tool_counts_before = _snapshot_counter(TOOL_CALL_COUNTS)
+        tool_cache_hit_before = _snapshot_counter(TOOL_CACHE_HIT_COUNTS)
+        tool_cache_miss_before = _snapshot_counter(TOOL_CACHE_MISS_COUNTS)
+        asknews_before = {
+            "total": int(ASKNEWS_STATS.get("total", 0)),
+            "removed": int(ASKNEWS_STATS.get("removed", 0)),
+        }
         
         post_details = get_post_details(post_id)
         question_details = post_details["question"]
@@ -701,6 +766,8 @@ async def forecast_individual_question(
             summary_of_forecast += f"Skipped: Forecast already made\n"
             return summary_of_forecast
 
+        prediction_diagnostics = _empty_prediction_diagnostics()
+
         # Fetch prediction market data if requested
         prediction_market_data_str = ""
         if get_prediction_market:
@@ -715,19 +782,19 @@ async def forecast_individual_question(
                 summary_of_forecast += f"\nPrediction Markets check failed: {e}\n"
 
         if question_type == "binary":
-            forecast, comment = await get_binary_prediction(
+            forecast, comment, prediction_diagnostics = await get_binary_prediction(
                 question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
             )
         elif question_type == "numeric":
-            forecast, comment = await get_numeric_prediction(
+            forecast, comment, prediction_diagnostics = await get_numeric_prediction(
                 question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
             )
         elif question_type == "discrete":
-            forecast, comment = await get_numeric_prediction(
+            forecast, comment, prediction_diagnostics = await get_numeric_prediction(
                 question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
             )
         elif question_type == "multiple_choice":
-            forecast, comment = await get_multiple_choice_prediction(
+            forecast, comment, prediction_diagnostics = await get_multiple_choice_prediction(
                 question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
             )
         else:
@@ -736,6 +803,21 @@ async def forecast_individual_question(
         print(f"-----------------------------------------------\nPost {post_id} Question {question_id}:\n")
         print(f"Forecast for post {post_id} (question {question_id}):\n{forecast}")
         print(f"Comment for post {post_id} (question {question_id}):\n{comment}")
+
+        total_usage = get_total_usage(scope=token_scope)
+        usage_breakdown = get_usage_breakdown(scope=token_scope)
+        tool_counts_after = _snapshot_counter(TOOL_CALL_COUNTS)
+        tool_cache_hit_after = _snapshot_counter(TOOL_CACHE_HIT_COUNTS)
+        tool_cache_miss_after = _snapshot_counter(TOOL_CACHE_MISS_COUNTS)
+        asknews_after = {
+            "total": int(ASKNEWS_STATS.get("total", 0)),
+            "removed": int(ASKNEWS_STATS.get("removed", 0)),
+        }
+        tool_call_counts = _diff_counter(tool_counts_after, tool_counts_before)
+        tool_cache_hit_counts = _diff_counter(tool_cache_hit_after, tool_cache_hit_before)
+        tool_cache_miss_counts = _diff_counter(tool_cache_miss_after, tool_cache_miss_before)
+        asknews_total_fetched = max(0, asknews_after["total"] - asknews_before["total"])
+        asknews_removed_by_filter = max(0, asknews_after["removed"] - asknews_before["removed"])
 
         # Log forecast event (pre-submission)
         try:
@@ -752,6 +834,20 @@ async def forecast_individual_question(
                 "comment": comment,
                 "submit_attempted": bool(submit_prediction),
                 "submitted": False,
+                "outside_view_text": prediction_diagnostics.get("outside_view_text"),
+                "inside_view_text": prediction_diagnostics.get("inside_view_text"),
+                "final_forecast_analysis": prediction_diagnostics.get("final_forecast_analysis"),
+                "all_probabilities": prediction_diagnostics.get("all_probabilities"),
+                "forecast_stddev": prediction_diagnostics.get("forecast_stddev"),
+                "prompt_tokens": int(total_usage.get("prompt", 0)),
+                "completion_tokens": int(total_usage.get("completion", 0)),
+                "cost_usd": float(total_usage.get("cost", 0.0)),
+                "token_usage_by_component": usage_breakdown,
+                "tool_call_counts": tool_call_counts,
+                "tool_cache_hit_counts": tool_cache_hit_counts,
+                "tool_cache_miss_counts": tool_cache_miss_counts,
+                "asknews_total_fetched": asknews_total_fetched,
+                "asknews_removed_by_filter": asknews_removed_by_filter,
             }
             log_forecast_event(event)
         except Exception as e:
@@ -785,6 +881,20 @@ async def forecast_individual_question(
                     "comment": comment,
                     "submit_attempted": True,
                     "submitted": True,
+                    "outside_view_text": prediction_diagnostics.get("outside_view_text"),
+                    "inside_view_text": prediction_diagnostics.get("inside_view_text"),
+                    "final_forecast_analysis": prediction_diagnostics.get("final_forecast_analysis"),
+                    "all_probabilities": prediction_diagnostics.get("all_probabilities"),
+                    "forecast_stddev": prediction_diagnostics.get("forecast_stddev"),
+                    "prompt_tokens": int(total_usage.get("prompt", 0)),
+                    "completion_tokens": int(total_usage.get("completion", 0)),
+                    "cost_usd": float(total_usage.get("cost", 0.0)),
+                    "token_usage_by_component": usage_breakdown,
+                    "tool_call_counts": tool_call_counts,
+                    "tool_cache_hit_counts": tool_cache_hit_counts,
+                    "tool_cache_miss_counts": tool_cache_miss_counts,
+                    "asknews_total_fetched": asknews_total_fetched,
+                    "asknews_removed_by_filter": asknews_removed_by_filter,
                 }
                 log_forecast_event(submitted_event)
             except Exception as e:
@@ -880,7 +990,12 @@ async def forecast_questions(
     print("\n" + "=" * 50)
     print("Tool Usage Statistics:", flush=True)
     for tool_name, count in TOOL_CALL_COUNTS.items():
-        print(f"{tool_name}: {count}", flush=True)
+        cache_hits = TOOL_CACHE_HIT_COUNTS.get(tool_name, 0)
+        cache_misses = TOOL_CACHE_MISS_COUNTS.get(tool_name, 0)
+        print(
+            f"{tool_name}: {count} (cache_hits={cache_hits}, cache_misses={cache_misses})",
+            flush=True,
+        )
     
     from src.utils import ASKNEWS_STATS
     print("\nAskNews Statistics:", flush=True)

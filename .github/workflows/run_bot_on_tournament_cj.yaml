@@ -37,7 +37,7 @@ jobs:
         run: poetry install --no-interaction --no-root
       - name: Run bot
         run: |
-          poetry run python main.py --mode spring-aib-2026 --submit --num-runs 5 --skip-prev
+          poetry run python main.py --mode spring-aib-2026 --submit --num-runs 5 --skip-prev --get-prediction-market --log-to-supabase
         # this reads the environment variables from the github repository.
         # Store under Settings --> Secrets and variables --> Actions
         env:
@@ -46,6 +46,15 @@ jobs:
           ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
           ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          
+          # Model Configuration
+          OUTSIDE_VIEW_MODEL: "gpt-5-mini"
+          INSIDE_VIEW_MODEL: "gpt-5-mini"
+          SUMMARY_MODEL: "gpt-5-nano"
+          FINAL_FORECAST_MODEL: "gpt-5.2"
+          FINAL_FORECAST_USE_AGENT: "false"
           # Logging configuration
           LOG_ENABLE: "true"
           LOG_PLAINTEXT: "true"
