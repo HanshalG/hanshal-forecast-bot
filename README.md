@@ -50,6 +50,11 @@ export EXA_API_KEY=...                # required
 poetry run python main.py --mode example_questions
 ```
 
+Enable Supabase logging for a run:
+```bash
+poetry run python main.py --mode example_questions --log-to-supabase
+```
+
 If your local environment has drifted because of manual `venv` usage, reset it:
 ```bash
 rm -rf .venv
@@ -68,7 +73,27 @@ poetry run python -m src.inside_view
 ```
 
 ### Logs
-Forecast runs are saved under `logs/` (including per-question JSONL and text files).
+Forecast runs are saved under `logs/`:
+- `logs/forecasts/by_question/<question_id>.jsonl` and `.txt`
+- `logs/forecasts/by_run/<run_id>.jsonl`
+- `logs/forecasts/all_forecasts.jsonl` and `.txt`
+- `logs/forecasts/all_events.jsonl` (runtime + forecast events)
+- `logs/runtime/runtime.jsonl` (runtime events)
+
+Useful logging env vars:
+- `LOG_ENABLE` (default: `true`)
+- `LOG_DIR` (default: `logs`)
+- `LOG_LEVEL` (`DEBUG`/`INFO`/`WARNING`/`ERROR`, default: `INFO`)
+- `LOG_CONSOLE` (default: `true`)
+- `LOG_CONSOLE_JSON` (default: `false`)
+- `LOG_GLOBAL_STREAM` (default: `true`)
+- `LOG_PLAINTEXT` (default: `true`)
+- `LOG_INCLUDE_COMMENT` (default: `true`)
+- `SUPABASE_LOG_ENABLE` (default: `true`)
+- `SUPABASE_URL` (Supabase project URL; required for remote logging)
+- `SUPABASE_KEY` (service-role key or insert-capable key; required for remote logging)
+- `SUPABASE_FORECAST_TABLE` (default: `forecast_events`)
+- `SUPABASE_TIMEOUT_S` (default: `5`)
 
 ### GitHub Actions (CI) for Metaculus Tournaments
 - Workflows:

@@ -6,6 +6,7 @@ import dotenv
 dotenv.load_dotenv()
 import src.forecast as forecast_module
 from src.forecast import forecast_questions
+from src.forecast_logger import set_supabase_logging_enabled
 from src.metaculus_utils import get_open_question_ids_from_tournament
 
 # The example questions can be used for testing your bot. (note that question and post id are not always the same)
@@ -67,9 +68,16 @@ if __name__ == "__main__":
         action="store_true",
         help="Check prediction markets (Polymarket) for relevant data before forecasting",
     )
+    parser.add_argument(
+        "--log-to-supabase",
+        action="store_true",
+        default=False,
+        help="Enable Supabase logging for this run (default: disabled unless this flag is provided)",
+    )
     #TO REMOVE
 
     args = parser.parse_args()
+    set_supabase_logging_enabled(args.log_to_supabase)
 
     if args.mode == "example_questions":
         open_question_id_post_id = EXAMPLE_QUESTIONS

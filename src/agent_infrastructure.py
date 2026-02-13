@@ -36,6 +36,14 @@ WEB_SEARCH_TOOL_CALL_LIMITS = {"thread_limit": 5, "run_limit": 5}
 exa_client = Exa(api_key=os.getenv("EXA_API_KEY"))
 _TOOL_RESULT_CACHE: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
 _TOOL_RESULT_CACHE_LOCK = Lock()
+_TOOL_CACHE_COUNT_LOCK = Lock()
+TOOL_CACHE_HIT_COUNTS: dict[str, int] = {}
+TOOL_CACHE_MISS_COUNTS: dict[str, int] = {}
+
+
+def _increment_cache_counter(counter: dict[str, int], tool_name: str) -> None:
+    with _TOOL_CACHE_COUNT_LOCK:
+        counter[tool_name] = counter.get(tool_name, 0) + 1
 
 
 def _stable_tool_input_json(tool_input: dict[str, Any]) -> str:
@@ -48,7 +56,9 @@ def _get_cached_tool_response(tool_name: str, tool_input: dict[str, Any]) -> tup
     with _TOOL_RESULT_CACHE_LOCK:
         cached = _TOOL_RESULT_CACHE.get(key)
     if cached is None:
+        _increment_cache_counter(TOOL_CACHE_MISS_COUNTS, tool_name)
         return None
+    _increment_cache_counter(TOOL_CACHE_HIT_COUNTS, tool_name)
     content, artifact = cached
     return content, deepcopy(artifact)
 

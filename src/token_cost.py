@@ -2,6 +2,7 @@ from langchain_community.callbacks.openai_info import OpenAICallbackHandler
 import threading
 import sys
 import contextvars
+from copy import deepcopy
 
 # Define cost per 1M tokens (in USD)
 # Format: "model_name": (input_cost_per_1m, output_cost_per_1m)
@@ -147,6 +148,14 @@ def get_total_usage(*, scope: str | None = None) -> dict:
             "calls": sum(v["calls"] for v in scope_usage.values()),
         }
         return total
+
+
+def get_usage_breakdown(*, scope: str | None = None) -> dict:
+    """Return per-component token usage for the provided (or current) scope."""
+    resolved_scope = _resolve_scope(scope)
+    with _token_usage_lock:
+        scope_usage = _ensure_scope_usage(resolved_scope)
+        return deepcopy(scope_usage)
 
 def print_total_usage(*, scope: str | None = None):
     """Print comprehensive token usage summary for the provided (or current) scope."""
