@@ -131,7 +131,7 @@ def test_supabase_insert_is_called_with_enriched_payload(monkeypatch, tmp_path):
             "forecast": 0.73,
             "comment": "comment body",
             "submit_attempted": True,
-            "submitted": False,
+            "submitted": True,
             "outside_view_text": "outside",
             "inside_view_text": "inside",
             "final_forecast_analysis": "analysis",
@@ -166,6 +166,52 @@ def test_supabase_insert_is_called_with_enriched_payload(monkeypatch, tmp_path):
     assert payload["cost_usd"] == 0.012345
     assert payload["tool_call_counts"]["exa_search"] == 3
     assert payload["raw_event"]["question_title"] == "Supa test"
+
+
+def test_supabase_dedup_skips_pre_submit_event(monkeypatch, tmp_path):
+    logger = _reload_logger(
+        monkeypatch,
+        tmp_path,
+        SUPABASE_LOG_ENABLE="true",
+        SUPABASE_URL="https://example-project.supabase.co",
+        SUPABASE_KEY="test-key",
+    )
+
+    calls = {"count": 0}
+
+    class _Resp:
+        status_code = 201
+        text = ""
+
+    def _fake_post(url, headers, json, timeout):
+        calls["count"] += 1
+        return _Resp()
+
+    monkeypatch.setattr(logger.requests, "post", _fake_post)
+
+    logger.log_forecast_event(
+        {
+            "run_id": "run-skip",
+            "question_id": 1234,
+            "question_type": "binary",
+            "forecast": 0.61,
+            "submit_attempted": True,
+            "submitted": False,
+        }
+    )
+    assert calls["count"] == 0
+
+    logger.log_forecast_event(
+        {
+            "run_id": "run-skip",
+            "question_id": 1234,
+            "question_type": "binary",
+            "forecast": 0.61,
+            "submit_attempted": True,
+            "submitted": True,
+        }
+    )
+    assert calls["count"] == 1
 
 
 def test_supabase_runtime_toggle_controls_writes(monkeypatch, tmp_path):

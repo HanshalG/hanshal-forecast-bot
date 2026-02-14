@@ -20,14 +20,13 @@ OUTSIDE_VIEW_MODEL = os.getenv("OUTSIDE_VIEW_MODEL", "gpt-5-mini")
 
 # --- Main Logic ---
 
-async def generate_outside_view(question_details: dict, historical_context: str | None = None, max_searches: int = 10) -> str:
+async def generate_outside_view(question_details: dict, historical_context: str | None = None) -> str:
     """Generate an outside view using a LangGraph agent.
 
     Args:
         question_details: A dict containing keys: "title", "description" (background),
             "resolution_criteria", and "fine_print".
         historical_context: Optional pre-computed context (ignored in this new version unless we want to inject it).
-        max_searches: Limit for searches (not strictly enforced by the agent graph, but kept for signature compatibility).
 
     Returns:
         The outside view analysis produced by the Agent.

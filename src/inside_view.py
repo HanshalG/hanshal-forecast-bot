@@ -20,13 +20,11 @@ load_dotenv()
 async def generate_inside_view(
     question_details: dict,
     news_context: str | None = None,
-    max_searches: int = 10,
 ) -> str:
     """Generate an inside view using a LangGraph agent.
 
     Args:
         question_details: A dict with keys: "title", "description", "resolution_criteria", "fine_print".
-        max_searches: Usage limit for searches (not strictly enforced by agent, kept for signature).
 
     Returns:
         The inside view analysis.
@@ -82,7 +80,6 @@ async def generate_inside_view(
 async def generate_inside_view_multiple_choice(
     question_details: dict,
     news_context: str | None = None,
-    max_searches: int = 10,
 ) -> str:
     """Generate an inside view for multiple choice questions."""
     
@@ -142,7 +139,6 @@ async def generate_inside_view_numeric(
     lower_bound_message: str,
     upper_bound_message: str,
     hint: str = "",
-    max_searches: int = 10,
 ) -> str:
     """Generate an inside view for numeric/discrete questions."""
     

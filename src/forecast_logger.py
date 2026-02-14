@@ -53,6 +53,7 @@ SUPABASE_KEY = (os.getenv("SUPABASE_KEY") or "").strip()
 SUPABASE_TABLE = (os.getenv("SUPABASE_FORECAST_TABLE") or "forecast_events").strip()
 SUPABASE_TIMEOUT_S = _env_int("SUPABASE_TIMEOUT_S", 5)
 SUPABASE_LOG_ENABLE = _env_bool("SUPABASE_LOG_ENABLE", True)
+SUPABASE_DEDUP_SUBMISSION_EVENTS = _env_bool("SUPABASE_DEDUP_SUBMISSION_EVENTS", True)
 
 
 def _now_iso() -> str:
@@ -257,6 +258,17 @@ def _supabase_enabled() -> bool:
         and SUPABASE_TABLE
         and requests is not None
     )
+
+
+def _is_pre_submission_forecast_event(event: dict[str, Any]) -> bool:
+    """Identify the pre-submit forecast event emitted before posting to Metaculus."""
+    if not bool(event.get("submit_attempted", False)):
+        return False
+    if bool(event.get("submitted", False)):
+        return False
+    if event.get("error") is not None:
+        return False
+    return event.get("forecast") is not None
 
 
 def set_supabase_logging_enabled(enabled: bool) -> None:
@@ -478,7 +490,10 @@ def log_forecast_event(event: dict[str, Any]) -> None:
         except Exception as exc:
             _safe_stderr_write(f"Logger write failure (forecast): {exc}")
 
-    if _supabase_enabled():
+    skip_supabase_insert = bool(
+        SUPABASE_DEDUP_SUBMISSION_EVENTS and _is_pre_submission_forecast_event(safe_event)
+    )
+    if _supabase_enabled() and not skip_supabase_insert:
         try:
             row = _map_forecast_event_to_supabase_row(safe_event)
             _insert_supabase_row(row)

@@ -1,6 +1,5 @@
 import asyncio
 import traceback
-import datetime
 import os
 import uuid
 import json
@@ -19,11 +18,8 @@ from src.inside_view import (
 )
 from src.final_forecast import generate_final_forecast
 from src.utils import (
-    extract_probability_from_response_as_percentage_not_decimal,
-    extract_percentiles_from_response,
     generate_continuous_cdf,
     enforce_cdf_monotonicity,
-    extract_option_probabilities_from_response,
     read_prompt,
     call_llm,
     call_asknews_async,
@@ -33,7 +29,6 @@ from src.metaculus_utils import (
     post_question_comment,
     post_question_prediction,
     create_forecast_payload,
-    get_open_question_ids_from_tournament,
     get_post_details,
 )
 from src.forecast_logger import log_forecast_event
@@ -102,41 +97,9 @@ def _normalize_final_forecast_data(final_forecast_data: dict) -> dict:
     return final_forecast_data
 
 
-def generate_multiple_choice_forecast(options, option_probabilities) -> dict:
-    """
-    Returns: dict corresponding to the probabilities of each option.
-    """
-
-    if len(options) != len(option_probabilities):
-        raise ValueError(
-            f"Number of options ({len(options)}) does not match number of probabilities ({len(option_probabilities)})"
-        )
-
-    total_sum = sum(option_probabilities)
-    decimal_list = [x / total_sum for x in option_probabilities]
-
-    def normalize_list(float_list):
-        clamped_list = [max(min(x, 0.99), 0.01) for x in float_list]
-        total_sum = sum(clamped_list)
-        normalized_list = [x / total_sum for x in clamped_list]
-        adjustment = 1.0 - sum(normalized_list)
-        normalized_list[-1] += adjustment
-        return normalized_list
-
-    normalized_option_probabilities = normalize_list(decimal_list)
-
-    probability_yes_per_category = {}
-    for i in range(len(options)):
-        probability_yes_per_category[options[i]] = normalized_option_probabilities[i]
-
-    return probability_yes_per_category
-
-
 async def get_binary_prediction(
     question_details: dict,
     num_runs: int,
-    max_outside_searches: int = 10,
-    max_inside_searches: int = 10,
     prediction_market_data: str = "None",
 ) -> Tuple[float, str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
@@ -171,7 +134,7 @@ async def get_binary_prediction(
                 # Generate outside view per run
                 print(f"Generating outside view {n+1} (attempt {attempts})")
 
-                outside_view_text = await generate_outside_view(question_details, max_searches=max_outside_searches)
+                outside_view_text = await generate_outside_view(question_details)
                 
                 print("\n" + "#" * 80 + "\n")
                 print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text}\"")
@@ -182,7 +145,6 @@ async def get_binary_prediction(
                 inside_view_text = await generate_inside_view(
                     question_details,
                     news_context=shared_news_context,
-                    max_searches=max_inside_searches,
                 )
 
                 print("\n" + "#" * 80 + "\n")
@@ -312,8 +274,6 @@ async def get_binary_prediction(
 async def get_numeric_prediction(
     question_details: dict,
     num_runs: int,
-    max_outside_searches: int = 10,
-    max_inside_searches: int = 10,
     prediction_market_data: str = "",
 ) -> Tuple[List[float], str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
@@ -338,7 +298,6 @@ async def get_numeric_prediction(
                     shared_news_context_task = None
             raise
 
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
     question_type = question_details["type"]
     scaling = question_details["scaling"]
     open_upper_bound = question_details["open_upper_bound"]
@@ -372,7 +331,7 @@ async def get_numeric_prediction(
             try:
                 # Generate outside view per run
                 print(f"Generating outside view {n+1} (attempt {attempts})")
-                outside_view_text = await generate_outside_view(question_details, max_searches=max_outside_searches)
+                outside_view_text = await generate_outside_view(question_details)
                 try:
                     print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
                 except Exception:
@@ -387,7 +346,6 @@ async def get_numeric_prediction(
                     lower_bound_message=lower_bound_message,
                     upper_bound_message=upper_bound_message,
                     hint="",
-                    max_searches=max_inside_searches,
                 )
                 try:
                     print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text[-200:]}\"")
@@ -517,8 +475,6 @@ async def get_numeric_prediction(
 async def get_multiple_choice_prediction(
     question_details: dict,
     num_runs: int,
-    max_outside_searches: int = 10,
-    max_inside_searches: int = 10,
     prediction_market_data: str = "",
 ) -> Tuple[Dict[str, float], str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
@@ -543,7 +499,6 @@ async def get_multiple_choice_prediction(
                     shared_news_context_task = None
             raise
 
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
     options = question_details["options"]
 
     async def ask_inside_view_mc(n) -> Tuple[Dict[str, float], str, str, str]:
@@ -554,7 +509,7 @@ async def get_multiple_choice_prediction(
             try:
                 # Generate outside view per run
                 print(f"Generating outside view {n+1} (attempt {attempts})")
-                outside_view_text = await generate_outside_view(question_details, max_searches=max_outside_searches)
+                outside_view_text = await generate_outside_view(question_details)
                 try:
                     print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text[-200:]}\"")
                 except Exception:
@@ -565,7 +520,6 @@ async def get_multiple_choice_prediction(
                 inside_view_text = await generate_inside_view_multiple_choice(
                     question_details,
                     news_context=shared_news_context,
-                    max_searches=max_inside_searches,
                 )
                 try:
                     print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text[-200:]}\"")
@@ -713,8 +667,6 @@ async def forecast_individual_question(
     submit_prediction: bool,
     num_runs_per_question: int,
     skip_previously_forecasted_questions: bool,
-    max_outside_searches: int = 10,
-    max_inside_searches: int = 10,
     get_prediction_market: bool = False,
 ) -> str:
     # Reset token usage at start of each forecast
@@ -783,19 +735,19 @@ async def forecast_individual_question(
 
         if question_type == "binary":
             forecast, comment, prediction_diagnostics = await get_binary_prediction(
-                question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
+                question_details, num_runs_per_question, prediction_market_data_str
             )
         elif question_type == "numeric":
             forecast, comment, prediction_diagnostics = await get_numeric_prediction(
-                question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
+                question_details, num_runs_per_question, prediction_market_data_str
             )
         elif question_type == "discrete":
             forecast, comment, prediction_diagnostics = await get_numeric_prediction(
-                question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
+                question_details, num_runs_per_question, prediction_market_data_str
             )
         elif question_type == "multiple_choice":
             forecast, comment, prediction_diagnostics = await get_multiple_choice_prediction(
-                question_details, num_runs_per_question, max_outside_searches, max_inside_searches, prediction_market_data_str
+                question_details, num_runs_per_question, prediction_market_data_str
             )
         else:
             raise ValueError(f"Unknown question type: {question_type}")
@@ -914,8 +866,6 @@ async def forecast_questions(
     submit_prediction: bool,
     num_runs_per_question: int,
     skip_previously_forecasted_questions: bool,
-    max_outside_searches: int = 10,
-    max_inside_searches: int = 10,
     get_prediction_market: bool = False,
 ) -> None:
     forecast_tasks = [
@@ -925,8 +875,6 @@ async def forecast_questions(
             submit_prediction,
             num_runs_per_question,
             skip_previously_forecasted_questions,
-            max_outside_searches,
-            max_inside_searches,
             get_prediction_market,
         )
         for question_id, post_id in open_question_id_post_id

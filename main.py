@@ -48,21 +48,6 @@ if __name__ == "__main__":
         help="Skip questions where a forecast already exists (default: False)",
     )
 
-    #TO REMOVE
-    parser.add_argument(
-        "--max-outside-searches",
-        dest="max_outside_searches",
-        type=int,
-        default=10,
-        help="Maximum number of Exa searches for historical/outside view research (default: 10)",
-    )
-    parser.add_argument(
-        "--max-inside-searches",
-        dest="max_inside_searches",
-        type=int,
-        default=10,
-        help="Maximum number of Exa searches for current/inside view research (default: 10)",
-    )
     parser.add_argument(
         "--get-prediction-market",
         action="store_true",
@@ -74,8 +59,6 @@ if __name__ == "__main__":
         default=False,
         help="Enable Supabase logging for this run (default: disabled unless this flag is provided)",
     )
-    #TO REMOVE
-
     args = parser.parse_args()
     set_supabase_logging_enabled(args.log_to_supabase)
 
@@ -95,8 +78,6 @@ if __name__ == "__main__":
             args.submit_prediction,
             args.num_runs_per_question,
             args.skip_previously_forecasted_questions,
-            args.max_outside_searches,
-            args.max_inside_searches,
             get_prediction_market=args.get_prediction_market,
         )
     )
