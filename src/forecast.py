@@ -10,13 +10,15 @@ import numpy as np
 
 from src.outside_view import (
     generate_outside_view,
+    OUTSIDE_VIEW_MODEL,
 )
 from src.inside_view import (
     generate_inside_view,
     generate_inside_view_multiple_choice,
     generate_inside_view_numeric,
+    LLM_MODEL as INSIDE_VIEW_MODEL,
 )
-from src.final_forecast import generate_final_forecast
+from src.final_forecast import generate_final_forecast, FINAL_FORECAST_MODEL
 from src.utils import (
     generate_continuous_cdf,
     enforce_cdf_monotonicity,
@@ -781,6 +783,10 @@ async def forecast_individual_question(
                 "question_title": title,
                 "question_type": question_type,
                 "model": SUMMARY_MODEL,
+                "outside_view_model": OUTSIDE_VIEW_MODEL,
+                "inside_view_model": INSIDE_VIEW_MODEL,
+                "final_forecast_model": FINAL_FORECAST_MODEL,
+                "summary_model": SUMMARY_MODEL,
                 "num_runs": num_runs_per_question,
                 "forecast": forecast,
                 "comment": comment,
@@ -828,6 +834,10 @@ async def forecast_individual_question(
                     "question_title": title,
                     "question_type": question_type,
                     "model": SUMMARY_MODEL,
+                    "outside_view_model": OUTSIDE_VIEW_MODEL,
+                    "inside_view_model": INSIDE_VIEW_MODEL,
+                    "final_forecast_model": FINAL_FORECAST_MODEL,
+                    "summary_model": SUMMARY_MODEL,
                     "num_runs": num_runs_per_question,
                     "forecast": forecast,
                     "comment": comment,
@@ -914,6 +924,10 @@ async def forecast_questions(
                     "question_title": None,
                     "question_type": None,
                     "model": SUMMARY_MODEL,
+                    "outside_view_model": OUTSIDE_VIEW_MODEL,
+                    "inside_view_model": INSIDE_VIEW_MODEL,
+                    "final_forecast_model": FINAL_FORECAST_MODEL,
+                    "summary_model": SUMMARY_MODEL,
                     "num_runs": num_runs_per_question,
                     "forecast": None,
                     "comment": None,

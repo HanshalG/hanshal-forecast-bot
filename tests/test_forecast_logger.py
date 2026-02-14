@@ -130,6 +130,10 @@ def test_supabase_insert_is_called_with_enriched_payload(monkeypatch, tmp_path):
             "question_type": "binary",
             "forecast": 0.73,
             "comment": "comment body",
+            "outside_view_model": "openai/gpt-5-mini",
+            "inside_view_model": "openai/gpt-5-mini",
+            "final_forecast_model": "openai/gpt-5-mini",
+            "summary_model": "openai/gpt-5-nano",
             "submit_attempted": True,
             "submitted": True,
             "outside_view_text": "outside",
@@ -157,6 +161,10 @@ def test_supabase_insert_is_called_with_enriched_payload(monkeypatch, tmp_path):
     payload = captured["json"]
     assert payload["run_id"] == "run-supa"
     assert payload["question_id"] == 999
+    assert payload["outside_view_model"] == "openai/gpt-5-mini"
+    assert payload["inside_view_model"] == "openai/gpt-5-mini"
+    assert payload["final_forecast_model"] == "openai/gpt-5-mini"
+    assert payload["summary_model"] == "openai/gpt-5-nano"
     assert payload["forecast_json"] == 0.73
     assert payload["all_probabilities_json"] == [0.7, 0.8, 0.69]
     assert payload["forecast_stddev"] == 0.05
