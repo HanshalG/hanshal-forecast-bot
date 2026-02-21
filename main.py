@@ -5,9 +5,10 @@ import dotenv
 
 dotenv.load_dotenv()
 import src.forecast as forecast_module
-from src.forecast import forecast_questions
+from src.forecast import forecast_questions, forecast_manual_questions
 from src.forecast_logger import set_supabase_logging_enabled
 from src.metaculus_utils import get_open_question_ids_from_tournament
+from src.manual_questions import load_manual_questions
 
 # The example questions can be used for testing your bot. (note that question and post id are not always the same)
 EXAMPLE_QUESTIONS = [  # (question_id, post_id)
@@ -20,8 +21,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the forecasting bot")
     parser.add_argument(
         "--mode",
-        choices=["spring-aib-2026", "minibench", "example_questions"],
+        choices=["spring-aib-2026", "minibench", "example_questions", "manual"],
         default="example_questions",
+    )
+    parser.add_argument(
+        "--questions-file",
+        type=str,
+        default="",
+        help="Path to a JSON/JSONL file containing manual questions (required when --mode manual).",
     )
     parser.add_argument(
         "--submit",
@@ -71,6 +78,23 @@ if __name__ == "__main__":
     elif args.mode == "spring-aib-2026":
         open_question_id_post_id = get_open_question_ids_from_tournament("spring-aib-2026")
         forecast_module.TOURNAMENT_ID = "spring-aib-2026"
+    elif args.mode == "manual":
+        if not args.questions_file:
+            parser.error("--questions-file is required when --mode manual.")
+        if args.submit_prediction:
+            parser.error("--submit is not supported in manual mode.")
+
+        manual_questions = load_manual_questions(args.questions_file)
+        forecast_module.TOURNAMENT_ID = "manual"
+        asyncio.run(
+            forecast_manual_questions(
+                manual_questions,
+                submit_prediction=False,
+                num_runs_per_question=args.num_runs_per_question,
+                get_prediction_market=args.get_prediction_market,
+            )
+        )
+        raise SystemExit(0)
 
     asyncio.run(
         forecast_questions(
