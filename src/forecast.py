@@ -729,7 +729,7 @@ async def forecast_individual_question(
             try:
                 markets = await get_prediction_market_data(title)
                 prediction_market_data_str = format_semipublic_market_data(markets)
-                print(f"Prediction Market Data:\n{prediction_market_data_str[:200]}...")
+                print(f"Prediction Market Data:\n{prediction_market_data_str}")
                 summary_of_forecast += f"\nPrediction Markets checked:\n{prediction_market_data_str}\n" 
             except Exception as e:
                 print(f"Error fetching prediction market data: {e}")
@@ -871,6 +871,167 @@ async def forecast_individual_question(
         reset_usage_scope(scope_token)
 
 
+async def forecast_individual_manual_question(
+    question_details: dict,
+    submit_prediction: bool,
+    num_runs_per_question: int,
+    get_prediction_market: bool = False,
+) -> str:
+    # Reset token usage at start of each forecast
+    from src.token_cost import (
+        clear_usage_scope,
+        get_total_usage,
+        get_usage_breakdown,
+        print_total_usage,
+        reset_usage,
+        reset_usage_scope,
+        set_usage_scope,
+    )
+    from src.utils import ASKNEWS_STATS
+
+    question_id = int(question_details["id"])
+    post_id = int(question_details.get("post_id", question_id))
+
+    if submit_prediction:
+        raise ValueError("submit_prediction is not supported in manual mode.")
+
+    token_scope = f"manual-question-{question_id}-{post_id}-{uuid.uuid4().hex}"
+    scope_token = set_usage_scope(token_scope)
+
+    try:
+        reset_usage()
+        tool_counts_before = _snapshot_counter(TOOL_CALL_COUNTS)
+        tool_cache_hit_before = _snapshot_counter(TOOL_CACHE_HIT_COUNTS)
+        tool_cache_miss_before = _snapshot_counter(TOOL_CACHE_MISS_COUNTS)
+        asknews_before = {
+            "total": int(ASKNEWS_STATS.get("total", 0)),
+            "removed": int(ASKNEWS_STATS.get("removed", 0)),
+        }
+
+        title = question_details["title"]
+        question_type = question_details["type"]
+
+        print(f"Forecasting manual question: {title} ({question_type})")
+
+        summary_of_forecast = ""
+        summary_of_forecast += f"-----------------------------------------------\nQuestion: {title}\n"
+        question_url = question_details.get("url")
+        if isinstance(question_url, str) and question_url.strip():
+            summary_of_forecast += f"URL: {question_url.strip()}\n"
+
+        if question_type == "multiple_choice":
+            options = question_details["options"]
+            print(f"Options: {options}")
+            summary_of_forecast += f"Options: {options}\n"
+
+        prediction_diagnostics = _empty_prediction_diagnostics()
+
+        # Fetch prediction market data if requested
+        prediction_market_data_str = ""
+        if get_prediction_market:
+            print(f"Fetching prediction market data for: {title}")
+            try:
+                markets = await get_prediction_market_data(title)
+                prediction_market_data_str = format_semipublic_market_data(markets)
+                print(f"Prediction Market Data:\n{prediction_market_data_str[:200]}...")
+                summary_of_forecast += f"\nPrediction Markets checked:\n{prediction_market_data_str}\n"
+            except Exception as e:
+                print(f"Error fetching prediction market data: {e}")
+                summary_of_forecast += f"\nPrediction Markets check failed: {e}\n"
+
+        if question_type == "binary":
+            forecast, comment, prediction_diagnostics = await get_binary_prediction(
+                question_details, num_runs_per_question, prediction_market_data_str
+            )
+        elif question_type == "numeric":
+            forecast, comment, prediction_diagnostics = await get_numeric_prediction(
+                question_details, num_runs_per_question, prediction_market_data_str
+            )
+        elif question_type == "discrete":
+            forecast, comment, prediction_diagnostics = await get_numeric_prediction(
+                question_details, num_runs_per_question, prediction_market_data_str
+            )
+        elif question_type == "multiple_choice":
+            forecast, comment, prediction_diagnostics = await get_multiple_choice_prediction(
+                question_details, num_runs_per_question, prediction_market_data_str
+            )
+        else:
+            raise ValueError(f"Unknown question type: {question_type}")
+
+        print(f"-----------------------------------------------\nManual Question {question_id}:\n")
+        print(f"Forecast for manual question {question_id}:\n{forecast}")
+        print(f"Comment for manual question {question_id}:\n{comment}")
+
+        total_usage = get_total_usage(scope=token_scope)
+        usage_breakdown = get_usage_breakdown(scope=token_scope)
+        tool_counts_after = _snapshot_counter(TOOL_CALL_COUNTS)
+        tool_cache_hit_after = _snapshot_counter(TOOL_CACHE_HIT_COUNTS)
+        tool_cache_miss_after = _snapshot_counter(TOOL_CACHE_MISS_COUNTS)
+        asknews_after = {
+            "total": int(ASKNEWS_STATS.get("total", 0)),
+            "removed": int(ASKNEWS_STATS.get("removed", 0)),
+        }
+        tool_call_counts = _diff_counter(tool_counts_after, tool_counts_before)
+        tool_cache_hit_counts = _diff_counter(tool_cache_hit_after, tool_cache_hit_before)
+        tool_cache_miss_counts = _diff_counter(tool_cache_miss_after, tool_cache_miss_before)
+        asknews_total_fetched = max(0, asknews_after["total"] - asknews_before["total"])
+        asknews_removed_by_filter = max(0, asknews_after["removed"] - asknews_before["removed"])
+
+        # Log forecast event (manual mode never submits)
+        try:
+            event = {
+                "run_id": RUN_ID,
+                "tournament_id": TOURNAMENT_ID,
+                "question_id": question_id,
+                "post_id": post_id,
+                "question_title": title,
+                "question_type": question_type,
+                "model": SUMMARY_MODEL,
+                "outside_view_model": OUTSIDE_VIEW_MODEL,
+                "inside_view_model": INSIDE_VIEW_MODEL,
+                "final_forecast_model": FINAL_FORECAST_MODEL,
+                "summary_model": SUMMARY_MODEL,
+                "num_runs": num_runs_per_question,
+                "forecast": forecast,
+                "comment": comment,
+                "submit_attempted": False,
+                "submitted": False,
+                "outside_view_text": prediction_diagnostics.get("outside_view_text"),
+                "inside_view_text": prediction_diagnostics.get("inside_view_text"),
+                "final_forecast_analysis": prediction_diagnostics.get("final_forecast_analysis"),
+                "all_probabilities": prediction_diagnostics.get("all_probabilities"),
+                "forecast_stddev": prediction_diagnostics.get("forecast_stddev"),
+                "prompt_tokens": int(total_usage.get("prompt", 0)),
+                "completion_tokens": int(total_usage.get("completion", 0)),
+                "cost_usd": float(total_usage.get("cost", 0.0)),
+                "token_usage_by_component": usage_breakdown,
+                "tool_call_counts": tool_call_counts,
+                "tool_cache_hit_counts": tool_cache_hit_counts,
+                "tool_cache_miss_counts": tool_cache_miss_counts,
+                "asknews_total_fetched": asknews_total_fetched,
+                "asknews_removed_by_filter": asknews_removed_by_filter,
+                "metadata": {"source_mode": "manual"},
+            }
+            log_forecast_event(event)
+        except Exception as e:
+            print(f"Logging error (manual pre-submission): {e}")
+
+        if question_type == "numeric" or question_type == "discrete":
+            summary_of_forecast += f"Forecast: {str(forecast)[:200]}...\n"
+        else:
+            summary_of_forecast += f"Forecast: {forecast}\n"
+
+        summary_of_forecast += f"Comment:\n```\n{comment[:200]}...\n```\n\n"
+
+        # Print token usage summary for this forecast
+        print_total_usage()
+
+        return summary_of_forecast
+    finally:
+        clear_usage_scope(scope=token_scope)
+        reset_usage_scope(scope_token)
+
+
 async def forecast_questions(
     open_question_id_post_id: list[tuple[int, int]],
     submit_prediction: bool,
@@ -959,6 +1120,97 @@ async def forecast_questions(
             flush=True,
         )
     
+    from src.utils import ASKNEWS_STATS
+    print("\nAskNews Statistics:", flush=True)
+    print(f"Total Fetched: {ASKNEWS_STATS['total']}", flush=True)
+    print(f"Removed by Filter: {ASKNEWS_STATS['removed']}", flush=True)
+    print("=" * 50 + "\n", flush=True)
+
+
+async def forecast_manual_questions(
+    manual_questions: list[dict[str, Any]],
+    submit_prediction: bool,
+    num_runs_per_question: int,
+    get_prediction_market: bool = False,
+) -> None:
+    forecast_tasks = [
+        forecast_individual_manual_question(
+            question_details,
+            submit_prediction,
+            num_runs_per_question,
+            get_prediction_market,
+        )
+        for question_details in manual_questions
+    ]
+    forecast_summaries = await asyncio.gather(*forecast_tasks, return_exceptions=True)
+
+    print("\n", "#" * 100, "\nManual Forecast Summaries\n", "#" * 100)
+
+    errors = []
+    for question_details, forecast_summary in zip(manual_questions, forecast_summaries):
+        question_id = question_details.get("id")
+        post_id = question_details.get("post_id", question_id)
+        title = question_details.get("title", "(untitled)")
+        question_type = question_details.get("type")
+        if isinstance(forecast_summary, Exception):
+            print(
+                f"-----------------------------------------------\nManual Question {question_id} Post {post_id}:\nTitle: {title}\nError: {forecast_summary.__class__.__name__} {forecast_summary}\n"
+            )
+            try:
+                trace_str = "".join(
+                    traceback.format_exception(
+                        type(forecast_summary), forecast_summary, forecast_summary.__traceback__
+                    )
+                )
+                print(trace_str)
+            except Exception:
+                trace_str = None
+            errors.append(forecast_summary)
+            # Log error event
+            try:
+                error_event = {
+                    "run_id": RUN_ID,
+                    "tournament_id": TOURNAMENT_ID,
+                    "question_id": question_id,
+                    "post_id": post_id,
+                    "question_title": title,
+                    "question_type": question_type,
+                    "model": SUMMARY_MODEL,
+                    "outside_view_model": OUTSIDE_VIEW_MODEL,
+                    "inside_view_model": INSIDE_VIEW_MODEL,
+                    "final_forecast_model": FINAL_FORECAST_MODEL,
+                    "summary_model": SUMMARY_MODEL,
+                    "num_runs": num_runs_per_question,
+                    "forecast": None,
+                    "comment": None,
+                    "submit_attempted": False,
+                    "submitted": False,
+                    "error": f"{forecast_summary.__class__.__name__}: {forecast_summary}",
+                    **({"error_trace": trace_str} if trace_str else {}),
+                    "metadata": {"source_mode": "manual"},
+                }
+                log_forecast_event(error_event)
+            except Exception as e:
+                print(f"Logging error (manual error-event): {e}")
+        else:
+            print(forecast_summary)
+
+    if errors:
+        print("-----------------------------------------------\nErrors:\n")
+        error_message = f"Errors were encountered: {errors}"
+        print(error_message)
+        raise RuntimeError(error_message)
+
+    print("\n" + "=" * 50)
+    print("Tool Usage Statistics:", flush=True)
+    for tool_name, count in TOOL_CALL_COUNTS.items():
+        cache_hits = TOOL_CACHE_HIT_COUNTS.get(tool_name, 0)
+        cache_misses = TOOL_CACHE_MISS_COUNTS.get(tool_name, 0)
+        print(
+            f"{tool_name}: {count} (cache_hits={cache_hits}, cache_misses={cache_misses})",
+            flush=True,
+        )
+
     from src.utils import ASKNEWS_STATS
     print("\nAskNews Statistics:", flush=True)
     print(f"Total Fetched: {ASKNEWS_STATS['total']}", flush=True)

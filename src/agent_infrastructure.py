@@ -24,11 +24,17 @@ load_dotenv()
 LLM_MODEL = os.getenv("INSIDE_VIEW_MODEL", "gpt-5-mini")
 TOOL_SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-5-nano")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-REASONING_EFFORT = "high"
+REASONING_EFFORT = "medium"
 
 # --- Tool Call Limits (defaults mirror LangChain docs examples) ---
-GLOBAL_TOOL_CALL_LIMITS = {"thread_limit": 10, "run_limit": 10}
-WEB_SEARCH_TOOL_CALL_LIMITS = {"thread_limit": 5, "run_limit": 5}
+TOOL_CALL_LIMITS = {
+    "global": {"thread_limit": 20, "run_limit": 20},
+    "tools": {
+        "exa_search": {"thread_limit": 5, "run_limit": 5},
+        "exa_answer": {"thread_limit": 5, "run_limit": 5},
+        "python_repl": {"thread_limit": 5, "run_limit": 5},
+    },
+}
 
 # --- Tool Definitions ---
 
@@ -246,6 +252,25 @@ TOOL_CALL_COUNTS = {tool.name: 0 for tool in ALL_TOOLS}
 def get_tool_call_counts():
     return TOOL_CALL_COUNTS
 
+
+def _build_tool_call_limit_middleware() -> list:
+    middleware: list = []
+
+    global_limits = TOOL_CALL_LIMITS.get("global")
+    if global_limits:
+        middleware.append(ToolCallLimitMiddleware(**global_limits))
+
+    per_tool_limits = TOOL_CALL_LIMITS.get("tools", {})
+    available_tool_names = {getattr(tool, "name", "") for tool in ALL_TOOLS}
+    for tool_name, limits in per_tool_limits.items():
+        if not limits:
+            continue
+        if tool_name not in available_tool_names:
+            continue
+        middleware.append(ToolCallLimitMiddleware(tool_name=tool_name, **limits))
+
+    return middleware
+
 @after_model
 def _count_tool_calls(state, _runtime):
     messages = state.get("messages") or []
@@ -269,15 +294,9 @@ def create_agent_graph(model_name: str = LLM_MODEL):
         api_key=os.getenv("OPENROUTER_API_KEY"),
         base_url=OPENROUTER_BASE_URL,
         temperature=0,
-        reasoning={"effort": "medium"}
+        reasoning={"effort": REASONING_EFFORT}
     )
-    web_search_tool_name = getattr(exa_search, "name", "exa_search")
-
-    middleware = [
-        ToolCallLimitMiddleware(**GLOBAL_TOOL_CALL_LIMITS),
-        ToolCallLimitMiddleware(tool_name=web_search_tool_name, **WEB_SEARCH_TOOL_CALL_LIMITS),
-        _count_tool_calls,
-    ]
+    middleware = [*_build_tool_call_limit_middleware(), _count_tool_calls]
 
     app = create_agent(
         model=llm,
