@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime
 from functools import lru_cache
 from typing import Any
 from copy import deepcopy
@@ -16,6 +17,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from exa_py import Exa
+from src.eval.timebox import parse_datetime, to_iso_z
 
 # Load environment variables
 load_dotenv()
@@ -31,7 +33,7 @@ TOOL_CALL_LIMITS = {
     "global": {"thread_limit": 20, "run_limit": 20},
     "tools": {
         "exa_search": {"thread_limit": 5, "run_limit": 5},
-        "exa_answer": {"thread_limit": 5, "run_limit": 5},
+        "exa_answer_tool": {"thread_limit": 5, "run_limit": 5},
         "python_repl": {"thread_limit": 5, "run_limit": 5},
     },
 }
@@ -153,6 +155,13 @@ def _build_tool_response(tool_name: str, tool_input: dict[str, Any], raw_result:
     return content, artifact
 
 
+def _eval_as_of_datetime_from_env() -> datetime | None:
+    value = (os.getenv("EVAL_AS_OF_TIME") or "").strip()
+    if not value:
+        return None
+    return parse_datetime(value)
+
+
 @tool(response_format="content_and_artifact")
 def exa_answer_tool(question: str) -> tuple[str, dict[str, Any]]:
     """Answer a specific question using Exa's answer endpoint.
@@ -167,6 +176,14 @@ def exa_answer_tool(question: str) -> tuple[str, dict[str, Any]]:
         return cached
 
     raw_result = ""
+    as_of_dt = _eval_as_of_datetime_from_env()
+    if as_of_dt is not None:
+        raw_result = (
+            "Error: exa_answer_tool is disabled when EVAL_AS_OF_TIME is set, "
+            "because this endpoint cannot be reliably time-filtered."
+        )
+        return _build_tool_response("exa_answer_tool", tool_input, raw_result)
+
     try:
         response = exa_client.answer(question, text=True)
         raw_result = f"Answer: {response.answer}\n\nCitations: {response.citations}"
@@ -203,7 +220,11 @@ def exa_search(search_query: str, guiding_highlights_query: str) -> tuple[str, d
         return cached
 
     raw_result = ""
+    as_of_dt = _eval_as_of_datetime_from_env()
     try:
+        kwargs: dict[str, Any] = {}
+        if as_of_dt is not None:
+            kwargs["end_published_date"] = to_iso_z(as_of_dt)
         response = exa_client.search_and_contents(
             search_query,
             num_results=3,
@@ -213,16 +234,31 @@ def exa_search(search_query: str, guiding_highlights_query: str) -> tuple[str, d
                 "query": guiding_highlights_query,  # Use search query to guide highlights extraction
                 "max_characters": 2000  # Limit number of highlight sentences
             },
+            **kwargs,
         )
 
         results = []
         for i, result in enumerate(response.results, 1):
+            published_candidate = (
+                getattr(result, "published_date", None)
+                or getattr(result, "publishedDate", None)
+                or (result.get("publishedDate") if isinstance(result, dict) else None)
+            )
+            published_dt = parse_datetime(published_candidate)
+            if as_of_dt is not None:
+                if published_dt is None or published_dt > as_of_dt:
+                    continue
             result_text = f"{i}. {result.title}\n   URL: {result.url}[:50]\n"
+            if published_candidate:
+                result_text += f"   Published: {published_candidate}\n"
             if hasattr(result, "highlights") and result.highlights:
                 result_text += f"   Key highlights: {', '.join(result.highlights)}\n"
             results.append(result_text)
 
-        raw_result = "\n".join(results)
+        if not results and as_of_dt is not None:
+            raw_result = f"No Exa search results survived timebox cutoff as_of={to_iso_z(as_of_dt)}."
+        else:
+            raw_result = "\n".join(results)
     except Exception as e:
         raw_result = f"Error searching with Exa: {e}"
 
@@ -253,7 +289,45 @@ def get_tool_call_counts():
     return TOOL_CALL_COUNTS
 
 
-def _build_tool_call_limit_middleware() -> list:
+def render_tool_call_limits_for_prompt() -> str:
+    """Render active tool-call limits as prompt-friendly text."""
+    lines: list[str] = []
+
+    global_limits = TOOL_CALL_LIMITS.get("global", {})
+    global_thread_limit = global_limits.get("thread_limit")
+    global_run_limit = global_limits.get("run_limit")
+    if global_thread_limit is not None or global_run_limit is not None:
+        lines.append(
+            f"- Global (all tools combined): thread_limit={global_thread_limit}, run_limit={global_run_limit}"
+        )
+
+    per_tool_limits = TOOL_CALL_LIMITS.get("tools", {})
+    available_tool_names = {getattr(tool, "name", "") for tool in ALL_TOOLS}
+    for tool_name in sorted(available_tool_names):
+        limits = per_tool_limits.get(tool_name)
+        if not limits:
+            continue
+        thread_limit = limits.get("thread_limit")
+        run_limit = limits.get("run_limit")
+        lines.append(
+            f"- {tool_name}: thread_limit={thread_limit}, run_limit={run_limit}"
+        )
+
+    return "\n".join(lines) if lines else "- No explicit tool-call limits configured."
+
+
+def _active_tools_for_current_mode() -> list:
+    """Return tools allowed for the current run mode.
+
+    In eval mode (`EVAL_AS_OF_TIME` set), disable `exa_answer_tool` entirely
+    because it cannot be strictly time-boxed.
+    """
+    if _eval_as_of_datetime_from_env() is not None:
+        return [exa_search, python_repl]
+    return list(ALL_TOOLS)
+
+
+def _build_tool_call_limit_middleware(active_tools: list) -> list:
     middleware: list = []
 
     global_limits = TOOL_CALL_LIMITS.get("global")
@@ -261,7 +335,7 @@ def _build_tool_call_limit_middleware() -> list:
         middleware.append(ToolCallLimitMiddleware(**global_limits))
 
     per_tool_limits = TOOL_CALL_LIMITS.get("tools", {})
-    available_tool_names = {getattr(tool, "name", "") for tool in ALL_TOOLS}
+    available_tool_names = {getattr(tool, "name", "") for tool in active_tools}
     for tool_name, limits in per_tool_limits.items():
         if not limits:
             continue
@@ -296,11 +370,12 @@ def create_agent_graph(model_name: str = LLM_MODEL):
         temperature=0,
         reasoning={"effort": REASONING_EFFORT}
     )
-    middleware = [*_build_tool_call_limit_middleware(), _count_tool_calls]
+    active_tools = _active_tools_for_current_mode()
+    middleware = [*_build_tool_call_limit_middleware(active_tools), _count_tool_calls]
 
     app = create_agent(
         model=llm,
-        tools=ALL_TOOLS,
+        tools=active_tools,
         middleware=middleware,
         checkpointer=InMemorySaver(),
     )

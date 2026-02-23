@@ -1,0 +1,11 @@
+{
+  "questions": [
+    {
+      "type": "binary",
+      "title": "Will India Win The 2026 ICC T20 Men’s World Cup",
+      "description": "Will India win the 2026 ICC T20 Men’s World Cup?",
+      "resolution_criteria": "This market will resolve according to the national team that wins the 2026 ICC T20 Men’s World Cup.\n\nIf at any point it becomes impossible for the listed team to win the 2026 ICC T20 Men’s World Cup based on the rules of the tournament (e.g., they are eliminated in the knockout stage), this market will resolve immediately to “No”.\n\nIf the 2026 ICC T20 Men’s World Cup is permanently canceled or has not been completed by June 30, 2026, 11:59 PM, this market will resolve to “Other”.\n\nThe primary resolution source will be the ICC (https://www.icc-cricket.com/tournaments/mens-t20-world-cup-2026); however, a consensus of credible reporting may also be used.",
+      "fine_print": ""
+    }
+  ]
+}

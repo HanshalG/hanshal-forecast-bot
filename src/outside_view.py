@@ -1,6 +1,5 @@
 import os
 import asyncio
-import datetime
 import uuid
 from dotenv import load_dotenv
 
@@ -10,9 +9,10 @@ from langchain_community.callbacks import get_openai_callback
 # Load environment variables (if not already loaded)
 load_dotenv()
 
-from src.agent_infrastructure import create_agent_graph
+from src.agent_infrastructure import create_agent_graph, render_tool_call_limits_for_prompt
 from src.metaculus_utils import get_post_details
 from src.message_utils import message_to_text
+from src.eval.timebox import today_string_for_prompt
 from src.utils import read_prompt, run_agent_with_streaming
 
 # Configuration
@@ -37,16 +37,18 @@ async def generate_outside_view(question_details: dict, historical_context: str 
     fine_print = question_details.get("fine_print", "")
 
     # Construct the initial system/user prompt for the agent
-    today = datetime.date.today().strftime("%Y-%m-%d")
+    today = today_string_for_prompt(question_details.get("as_of_time"))
 
     # Construct the initial system/user prompt for the agent
     prompt_template = read_prompt("outside_view_agent_prompt.txt")
+    tool_call_limits = render_tool_call_limits_for_prompt()
     prompt = prompt_template.format(
         title=title,
         background=background,
         resolution_criteria=resolution_criteria,
         fine_print=fine_print,
-        today=today
+        today=today,
+        tool_call_limits=tool_call_limits,
     )
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}

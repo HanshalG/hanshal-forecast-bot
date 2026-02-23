@@ -1,4 +1,3 @@
-import datetime
 import asyncio
 import uuid
 from dotenv import load_dotenv
@@ -7,7 +6,8 @@ from langchain_core.messages import HumanMessage
 from langchain_community.callbacks import get_openai_callback
 
 # --- Agent Infrastructure Import ---
-from src.agent_infrastructure import create_agent_graph, LLM_MODEL
+from src.agent_infrastructure import create_agent_graph, LLM_MODEL, render_tool_call_limits_for_prompt
+from src.eval.timebox import today_string_for_prompt
 from src.message_utils import message_to_text
 from src.metaculus_utils import get_post_details
 from src.utils import call_asknews_async, read_prompt, run_agent_with_streaming
@@ -34,15 +34,19 @@ async def generate_inside_view(
     resolution_criteria = question_details.get("resolution_criteria", "")
     fine_print = question_details.get("fine_print", "")
     
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    today = today_string_for_prompt(question_details.get("as_of_time"))
 
     # Fetch relevant news unless pre-fetched context is provided.
     if news_context is None:
         print(f"Fetching news for inside view: {title}")
-        news_context = await call_asknews_async(question_details)
+        news_context = await call_asknews_async(
+            question_details,
+            as_of_time=question_details.get("as_of_time"),
+        )
     
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_prompt.txt")
+    tool_call_limits = render_tool_call_limits_for_prompt()
     
     prompt = prompt_template.format(
         title=title,
@@ -50,7 +54,8 @@ async def generate_inside_view(
         resolution_criteria=resolution_criteria,
         fine_print=fine_print,
         today=today,
-        context=news_context
+        context=news_context,
+        tool_call_limits=tool_call_limits,
     )
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
@@ -87,17 +92,21 @@ async def generate_inside_view_multiple_choice(
     options = question_details.get("options", [])
     resolution_criteria = question_details.get("resolution_criteria", "")
     fine_print = question_details.get("fine_print", "")
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    today = today_string_for_prompt(question_details.get("as_of_time"))
 
     options_str = ", ".join([str(o) for o in options]) if isinstance(options, (list, tuple)) else str(options)
 
     # Fetch relevant news unless pre-fetched context is provided.
     if news_context is None:
         print(f"Fetching news for inside view (MC): {title}")
-        news_context = await call_asknews_async(question_details)
+        news_context = await call_asknews_async(
+            question_details,
+            as_of_time=question_details.get("as_of_time"),
+        )
 
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_multiple_choice_prompt.txt")
+    tool_call_limits = render_tool_call_limits_for_prompt()
 
     prompt = prompt_template.format(
         title=title,
@@ -105,7 +114,8 @@ async def generate_inside_view_multiple_choice(
         resolution_criteria=resolution_criteria,
         fine_print=fine_print,
         today=today,
-        context=news_context
+        context=news_context,
+        tool_call_limits=tool_call_limits,
     )
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
@@ -146,15 +156,19 @@ async def generate_inside_view_numeric(
     background = question_details.get("description", "")
     resolution_criteria = question_details.get("resolution_criteria", "")
     fine_print = question_details.get("fine_print", "")
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    today = today_string_for_prompt(question_details.get("as_of_time"))
 
     # Fetch relevant news unless pre-fetched context is provided.
     if news_context is None:
         print(f"Fetching news for inside view (Numeric): {title}")
-        news_context = await call_asknews_async(question_details)
+        news_context = await call_asknews_async(
+            question_details,
+            as_of_time=question_details.get("as_of_time"),
+        )
 
     # Load prompt template from file
     prompt_template = read_prompt("inside_view_numeric_prompt.txt")
+    tool_call_limits = render_tool_call_limits_for_prompt()
 
     prompt = prompt_template.format(
         title=title,
@@ -166,7 +180,8 @@ async def generate_inside_view_numeric(
         upper_bound_message=upper_bound_message,
         hint=hint,
         today=today,
-        context=news_context
+        context=news_context,
+        tool_call_limits=tool_call_limits,
     )
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}

@@ -12,6 +12,7 @@ from asknews_sdk import AskNewsSDK
 from openai import AsyncOpenAI
 from exa_py import Exa
 from langchain_core.messages import AIMessage, ToolMessage
+from src.eval.timebox import filter_items_before_as_of, resolve_as_of_time, to_iso_z
 from src.message_utils import content_to_text, message_to_text
 
 load_dotenv()
@@ -540,6 +541,11 @@ def _asknews_fetch_articles_with_retries(
     n_articles: int,
     return_type: str,
     strategy: str,
+    start_timestamp: int | None = None,
+    end_timestamp: int | None = None,
+    time_filter: str = "pub_date",
+    historical: bool | None = None,
+    hours_back: int | None = None,
     retries: int = 2,
     base_sleep_seconds: float = 0.5,
 ):
@@ -548,12 +554,21 @@ def _asknews_fetch_articles_with_retries(
     attempts = retries + 1
     for attempt in range(attempts):
         try:
-            resp = ask.news.search_news(
-                query=query,
-                n_articles=n_articles,
-                return_type=return_type,
-                strategy=strategy,
-            )
+            search_kwargs: dict[str, Any] = {
+                "query": query,
+                "n_articles": n_articles,
+                "return_type": return_type,
+                "strategy": strategy,
+                "start_timestamp": start_timestamp,
+                "end_timestamp": end_timestamp,
+                "time_filter": time_filter,
+            }
+            if historical is not None:
+                search_kwargs["historical"] = historical
+            if hours_back is not None:
+                search_kwargs["hours_back"] = hours_back
+
+            resp = ask.news.search_news(**search_kwargs)
             try:
                 articles = resp.as_dicts  # type: ignore[attr-defined]
             except Exception:
@@ -1004,7 +1019,11 @@ async def call_llm(
         assert last_err is not None
         raise last_err
 
-async def call_asknews_async(question_or_details: str | dict) -> str:
+async def call_asknews_async(
+    question_or_details: str | dict,
+    *,
+    as_of_time: str | None = None,
+) -> str:
     """
     Use the AskNews `news` endpoint to get news context for your query.
     The full API reference can be found here: https://docs.asknews.app/en/reference#get-/v1/news/search
@@ -1023,6 +1042,16 @@ async def call_asknews_async(question_or_details: str | dict) -> str:
         question_details = question_or_details
     else:
         question_text = str(question_or_details)
+    as_of_dt = resolve_as_of_time(question_details, as_of_time)
+    as_of_timestamp = int(as_of_dt.timestamp()) if as_of_dt is not None else None
+    latest_start_timestamp = (
+        max(0, as_of_timestamp - (48 * 60 * 60)) if as_of_timestamp is not None else None
+    )
+    if as_of_timestamp is not None:
+        print(
+            f"AskNews provider filter enabled: end_timestamp={as_of_timestamp} "
+            f"(as_of={to_iso_z(as_of_dt)})"
+        )
 
     # get the latest news related to the query (within the past 48 hours) with retries
     hot_articles = _asknews_fetch_articles_with_retries(
@@ -1031,6 +1060,11 @@ async def call_asknews_async(question_or_details: str | dict) -> str:
         n_articles=6,
         return_type="both",
         strategy="latest news",
+        start_timestamp=latest_start_timestamp,
+        time_filter="pub_date",
+        end_timestamp=as_of_timestamp,
+        historical=False,
+        hours_back=None if as_of_timestamp is not None else 48,
         retries=2,
     )
 
@@ -1043,6 +1077,9 @@ async def call_asknews_async(question_or_details: str | dict) -> str:
         n_articles=10,
         return_type="both",
         strategy="news knowledge",
+        time_filter="pub_date",
+        end_timestamp=as_of_timestamp,
+        historical=True,
         retries=2,
     )
 
@@ -1062,6 +1099,18 @@ async def call_asknews_async(question_or_details: str | dict) -> str:
 
     if len(all_articles) == 0:
         return "Here are the relevant news articles:\n\nNo articles were found.\n\n"
+
+    if as_of_dt is not None:
+        all_articles, removed_by_timebox = filter_items_before_as_of(
+            all_articles,
+            as_of_time=as_of_dt,
+            keep_unparseable=False,
+        )
+        print(
+            f"AskNews timebox filter: kept={len(all_articles)} removed={removed_by_timebox} as_of={to_iso_z(as_of_dt)}"
+        )
+        if len(all_articles) == 0:
+            return "Here are the relevant news articles:\n\nNo articles were found.\n\n"
 
     kept_articles = all_articles
     if question_details is not None:
@@ -1139,7 +1188,7 @@ async def call_asknews_async(question_or_details: str | dict) -> str:
     return formatted_articles
 
 
-def call_asknews(question_or_details: str | dict) -> str:
+def call_asknews(question_or_details: str | dict, *, as_of_time: str | None = None) -> str:
     """Synchronous wrapper for AskNews retrieval and filtering.
 
     If called inside an active event loop, falls back to no-filter mode to avoid loop issues.
@@ -1152,7 +1201,7 @@ def call_asknews(question_or_details: str | dict) -> str:
         # NOTE: Async paths (e.g., inside_view) should call call_asknews_async instead.
     except RuntimeError:
         # No running loop; safe to run the async version
-        return asyncio.run(call_asknews_async(question_or_details))
+        return asyncio.run(call_asknews_async(question_or_details, as_of_time=as_of_time))
 
     # Fallback path (no filtering) when inside loop; replicate minimal original behavior
     if not ASKNEWS_CLIENT_ID or not ASKNEWS_SECRET:
@@ -1166,6 +1215,19 @@ def call_asknews(question_or_details: str | dict) -> str:
         question_text = question_or_details.get("title") or question_or_details.get("question") or ""
     else:
         question_text = str(question_or_details)
+    as_of_dt = resolve_as_of_time(
+        question_or_details if isinstance(question_or_details, dict) else None,
+        as_of_time,
+    )
+    as_of_timestamp = int(as_of_dt.timestamp()) if as_of_dt is not None else None
+    latest_start_timestamp = (
+        max(0, as_of_timestamp - (48 * 60 * 60)) if as_of_timestamp is not None else None
+    )
+    if as_of_timestamp is not None:
+        print(
+            f"AskNews provider filter enabled: end_timestamp={as_of_timestamp} "
+            f"(as_of={to_iso_z(as_of_dt)})"
+        )
 
     hot_articles = _asknews_fetch_articles_with_retries(
         ask,
@@ -1173,6 +1235,11 @@ def call_asknews(question_or_details: str | dict) -> str:
         n_articles=6,
         return_type="both",
         strategy="latest news",
+        start_timestamp=latest_start_timestamp,
+        time_filter="pub_date",
+        end_timestamp=as_of_timestamp,
+        historical=False,
+        hours_back=None if as_of_timestamp is not None else 48,
         retries=2,
     )
     time.sleep(10)
@@ -1182,6 +1249,9 @@ def call_asknews(question_or_details: str | dict) -> str:
         n_articles=10,
         return_type="both",
         strategy="news knowledge",
+        time_filter="pub_date",
+        end_timestamp=as_of_timestamp,
+        historical=True,
         retries=2,
     )
     def _coerce_article_to_dict_local(a) -> dict:
@@ -1197,6 +1267,18 @@ def call_asknews(question_or_details: str | dict) -> str:
 
     if len(kept_articles) == 0:
         return "Here are the relevant news articles:\n\nNo articles were found.\n\n"
+
+    if as_of_dt is not None:
+        kept_articles, removed_by_timebox = filter_items_before_as_of(
+            kept_articles,
+            as_of_time=as_of_dt,
+            keep_unparseable=False,
+        )
+        print(
+            f"AskNews timebox filter: kept={len(kept_articles)} removed={removed_by_timebox} as_of={to_iso_z(as_of_dt)}"
+        )
+        if len(kept_articles) == 0:
+            return "Here are the relevant news articles:\n\nNo articles were found.\n\n"
 
     try:
         kept_articles = sorted(

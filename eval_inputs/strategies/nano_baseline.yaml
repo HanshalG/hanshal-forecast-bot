@@ -1,0 +1,8 @@
+id: nano_baseline
+enabled: true
+outside_view_enabled: true
+inside_view_enabled: true
+prediction_market_enabled: false
+final_forecast_use_agent: false
+env_overrides:
+  LOG_ENABLE: "true"

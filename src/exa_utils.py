@@ -1,9 +1,9 @@
-import datetime
 import json
 import os
 from typing import Any, Dict, List, Tuple
 import asyncio
 
+from .eval.timebox import filter_items_before_as_of, today_string_for_prompt
 from .utils import read_prompt, call_llm, exa
 
 # Model Configuration from .env
@@ -67,7 +67,7 @@ def build_historical_queries_prompt(question_details: Dict[str, Any]) -> str:
     background = _safe_get(question_details, "description", "")
     resolution_criteria = _safe_get(question_details, "resolution_criteria", "")
     fine_print = _safe_get(question_details, "fine_print", "")
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    today = today_string_for_prompt(_safe_get(question_details, "as_of_time"))
 
     # Important: Do targeted replacements only to avoid breaking JSON braces in the template.
     rendered = template
@@ -137,7 +137,12 @@ def _format_exa_result_item(item: Any) -> Dict[str, Any]:
     }
 
 
-def _call_exa_search_and_contents(params: Dict[str, Any], *, num_results: int = 8) -> List[Dict[str, Any]]:
+def _call_exa_search_and_contents(
+    params: Dict[str, Any],
+    *,
+    num_results: int = 8,
+    end_published_date_override: str | None = None,
+) -> List[Dict[str, Any]]:
     """Call Exa search_and_contents requesting summaries only (use summaryQuery/schema if provided).
 
     The incoming params follow the LLM JSON schema. We map a safe subset to Exa arguments.
@@ -147,10 +152,14 @@ def _call_exa_search_and_contents(params: Dict[str, Any], *, num_results: int = 
     if not query:
         return []
 
-    include_domains = [] #_coerce_list_of_str(_safe_get(params, "includeDomains", []))
+    include_domains = _coerce_list_of_str(_safe_get(params, "includeDomains", []))
     include_text = _coerce_list_of_str(_safe_get(params, "includeText", []))
-    start_published_date = None #_safe_get(params, "startPublishedDate")
-    end_published_date = None #_safe_get(params, "endPublishedDate")
+    start_published_date = _safe_get(params, "startPublishedDate")
+    end_published_date = (
+        end_published_date_override
+        or _safe_get(params, "endPublishedDate")
+        or os.getenv("EVAL_AS_OF_TIME")
+    )
 
     # Build a conservative kwargs set. Exa SDK is permissive about snake_case names.
     kwargs: Dict[str, Any] = {
@@ -226,7 +235,14 @@ def _call_exa_search_and_contents(params: Dict[str, Any], *, num_results: int = 
     formatted: List[Dict[str, Any]] = []
     for it in items:
         formatted.append(_format_exa_result_item(it))
-    return formatted
+    filtered, removed = filter_items_before_as_of(
+        formatted,
+        as_of_time=end_published_date,
+        keep_unparseable=False,
+    )
+    if removed > 0:
+        print(f"Exa timebox filter removed {removed} item(s) newer than as_of={end_published_date}")
+    return filtered
 
 
 def run_historical_exa_research(question_details: Dict[str, Any], *, num_results: int = 8) -> List[Tuple[Dict[str, Any], List[Dict[str, Any]]]]:
@@ -237,8 +253,16 @@ def run_historical_exa_research(question_details: Dict[str, Any], *, num_results
     async def _inner() -> List[Tuple[Dict[str, Any], List[Dict[str, Any]]]]:
         payloads = await generate_historical_exa_queries(question_details)
         pairs: List[Tuple[Dict[str, Any], List[Dict[str, Any]]]] = []
+        end_published_date_override = None
+        maybe_as_of = _safe_get(question_details, "as_of_time")
+        if isinstance(maybe_as_of, str) and maybe_as_of.strip():
+            end_published_date_override = maybe_as_of.strip()
         for p in payloads:
-            results = _call_exa_search_and_contents(p, num_results=num_results)
+            results = _call_exa_search_and_contents(
+                p,
+                num_results=num_results,
+                end_published_date_override=end_published_date_override,
+            )
             try:
                 filtered = await filter_relevant_exa_results(question_details, results)
             except Exception:
@@ -414,5 +438,4 @@ if __name__ == "__main__":
     except Exception as e:
         print("Run failed:", e)
         print("Environment variables required: OPENROUTER_API_KEY, EXA_API_KEY, METACULUS_TOKEN")
-
 

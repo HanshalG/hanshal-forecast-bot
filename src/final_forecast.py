@@ -1,5 +1,4 @@
 import os
-import datetime
 import asyncio
 import uuid
 import json
@@ -12,6 +11,7 @@ from langchain_community.callbacks import get_openai_callback
 
 # --- Agent Infrastructure Import ---
 from src.agent_infrastructure import create_agent_graph
+from src.eval.timebox import today_string_for_prompt
 from src.message_utils import message_to_text
 from src.utils import call_llm, run_agent_with_streaming
 
@@ -152,7 +152,7 @@ async def generate_final_forecast(
     Returns:
         The final synthesized forecast commentary and probability/CDF.
     """
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    today = today_string_for_prompt(question_details.get("as_of_time"))
     question_type = question_details.get("type", "binary")
     
     # Select prompt based on type

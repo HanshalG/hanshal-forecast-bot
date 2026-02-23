@@ -103,6 +103,10 @@ async def get_binary_prediction(
     question_details: dict,
     num_runs: int,
     prediction_market_data: str = "None",
+    *,
+    outside_view_enabled: bool = True,
+    inside_view_enabled: bool = True,
+    final_forecast_use_agent: bool | None = None,
 ) -> Tuple[float, str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
     shared_news_context_lock = asyncio.Lock()
@@ -134,20 +138,25 @@ async def get_binary_prediction(
             attempts += 1
             try:
                 # Generate outside view per run
-                print(f"Generating outside view {n+1} (attempt {attempts})")
-
-                outside_view_text = await generate_outside_view(question_details)
+                if outside_view_enabled:
+                    print(f"Generating outside view {n+1} (attempt {attempts})")
+                    outside_view_text = await generate_outside_view(question_details)
+                else:
+                    outside_view_text = "Outside view disabled by strategy."
                 
                 print("\n" + "#" * 80 + "\n")
                 print(f"Outside view {n+1} (attempt {attempts}): \"...{outside_view_text}\"")
                 print("\n" + "#" * 80 + "\n")
 
-                print(f"Generating inside view {n+1} (attempt {attempts})")
-                shared_news_context = await _get_shared_news_context()
-                inside_view_text = await generate_inside_view(
-                    question_details,
-                    news_context=shared_news_context,
-                )
+                if inside_view_enabled:
+                    print(f"Generating inside view {n+1} (attempt {attempts})")
+                    shared_news_context = await _get_shared_news_context()
+                    inside_view_text = await generate_inside_view(
+                        question_details,
+                        news_context=shared_news_context,
+                    )
+                else:
+                    inside_view_text = "Inside view disabled by strategy."
 
                 print("\n" + "#" * 80 + "\n")
                 print(f"Inside view {n+1} (attempt {attempts}): \"...{inside_view_text}\"")
@@ -164,6 +173,7 @@ async def get_binary_prediction(
                         outside_view_text=outside_view_text,
                         inside_view_text=inside_view_text,
                         prediction_market_data=prediction_market_data,
+                        use_agent=final_forecast_use_agent,
                 )
                 final_forecast_data = _normalize_final_forecast_data(final_forecast_data)
 
