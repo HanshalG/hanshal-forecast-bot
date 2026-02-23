@@ -1,0 +1,46 @@
+strategies:
+  - id: qbaf_paper_core_fixed
+    enabled: true
+    num_runs: 1
+    strategy_kind: qbaf_multi_agent
+    qbaf_depth: 2
+    qbaf_similarity_threshold: 0.5
+    qbaf_similarity_backend: llm_pairwise
+    qbaf_base_aggregation: avg
+    qbaf_root_base_mode: fixed_0_5
+    qbaf_generation_model: gpt-5-nano
+    qbaf_pairwise_model: gpt-5-nano
+    qbaf_max_nodes_per_depth: 6
+    qbaf_agent_profiles:
+      - id: argllm_base
+        retrieval_mode: argllm_base
+        description: No retrieval context; argument-only reasoning.
+      - id: rag_asknews
+        retrieval_mode: rag_asknews
+        description: Uses AskNews time-boxed context as of question open time.
+      - id: rag_exa
+        retrieval_mode: rag_exa
+        description: Uses Exa historical summaries as of question open time.
+
+  - id: qbaf_paper_core_estimated
+    enabled: true
+    num_runs: 1
+    strategy_kind: qbaf_multi_agent
+    qbaf_depth: 2
+    qbaf_similarity_threshold: 0.5
+    qbaf_similarity_backend: llm_pairwise
+    qbaf_base_aggregation: avg
+    qbaf_root_base_mode: estimated
+    qbaf_generation_model: gpt-5-nano
+    qbaf_pairwise_model: gpt-5-nano
+    qbaf_max_nodes_per_depth: 6
+    qbaf_agent_profiles:
+      - id: argllm_base
+        retrieval_mode: argllm_base
+        description: No retrieval context; argument-only reasoning.
+      - id: rag_asknews
+        retrieval_mode: rag_asknews
+        description: Uses AskNews time-boxed context as of question open time.
+      - id: rag_exa
+        retrieval_mode: rag_exa
+        description: Uses Exa historical summaries as of question open time.

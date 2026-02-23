@@ -79,3 +79,97 @@ outside_view_model: gpt-5-mini
 
     strategies = load_strategy_files([str(path)], force_nano_models=False)
     assert strategies[0].model_overrides == {"OUTSIDE_VIEW_MODEL": "gpt-5-mini"}
+
+
+def test_load_qbaf_strategy_valid(tmp_path):
+    path = tmp_path / "strategy_qbaf.yaml"
+    path.write_text(
+        """
+id: qbaf_core
+enabled: true
+num_runs: 2
+strategy_kind: qbaf_multi_agent
+qbaf_depth: 3
+qbaf_similarity_threshold: 0.7
+qbaf_similarity_backend: tfidf_cosine
+qbaf_base_aggregation: max
+qbaf_root_base_mode: estimated
+qbaf_generation_model: gpt-5-mini
+qbaf_pairwise_model: gpt-5-nano
+qbaf_max_nodes_per_depth: 5
+qbaf_agent_profiles:
+  - id: base
+    retrieval_mode: argllm_base
+  - id: ask
+    retrieval_mode: rag_asknews
+  - id: exa
+    retrieval_mode: rag_exa
+""",
+        encoding="utf-8",
+    )
+
+    strategy = load_strategy_files([str(path)], force_nano_models=False)[0]
+
+    assert strategy.strategy_kind == "qbaf_multi_agent"
+    assert strategy.qbaf_depth == 3
+    assert strategy.qbaf_similarity_threshold == pytest.approx(0.7)
+    assert strategy.qbaf_similarity_backend == "tfidf_cosine"
+    assert strategy.qbaf_base_aggregation == "max"
+    assert strategy.qbaf_root_base_mode == "estimated"
+    assert strategy.qbaf_generation_model == "gpt-5-mini"
+    assert strategy.qbaf_pairwise_model == "gpt-5-nano"
+    assert strategy.qbaf_max_nodes_per_depth == 5
+    assert [p.id for p in strategy.qbaf_agent_profiles] == ["base", "ask", "exa"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        """
+id: bad_qbaf_kind
+enabled: true
+num_runs: 1
+strategy_kind: qbaf_multi_agent
+qbaf_similarity_backend: unsupported
+""",
+        """
+id: bad_qbaf_threshold
+enabled: true
+num_runs: 1
+strategy_kind: qbaf_multi_agent
+qbaf_similarity_threshold: 1.5
+""",
+        """
+id: bad_qbaf_depth
+enabled: true
+num_runs: 1
+strategy_kind: qbaf_multi_agent
+qbaf_depth: 0
+""",
+    ],
+)
+def test_load_qbaf_strategy_rejects_invalid_fields(tmp_path, body):
+    path = tmp_path / "bad.yaml"
+    path.write_text(body, encoding="utf-8")
+    with pytest.raises(StrategyConfigError):
+        load_strategy_files([str(path)], force_nano_models=False)
+
+
+def test_strategy_config_backward_compatible_defaults_strategy_kind(tmp_path):
+    path = tmp_path / "legacy.yaml"
+    path.write_text(
+        """
+id: legacy
+enabled: true
+num_runs: 1
+outside_view_enabled: false
+inside_view_enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    strategy = load_strategy_files([str(path)], force_nano_models=False)[0]
+    assert strategy.strategy_kind == "forecast_pipeline"
+    assert strategy.qbaf_depth == 2
+    assert strategy.qbaf_similarity_backend == "llm_pairwise"
+    assert len(strategy.qbaf_agent_profiles) == 3

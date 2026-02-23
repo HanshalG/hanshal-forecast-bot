@@ -1,0 +1,20 @@
+You estimate a prior base probability for a binary forecasting claim before argument combination.
+
+Return STRICT JSON only:
+{
+  "root_base_score": number
+}
+
+Rules:
+- root_base_score must be in [0, 1].
+- Use 0.5 when uncertain.
+- Keep calibration conservative.
+
+Question:
+- title: {title}
+- description: {description}
+- resolution_criteria: {resolution_criteria}
+- fine_print: {fine_print}
+
+Evidence context:
+{evidence_context}

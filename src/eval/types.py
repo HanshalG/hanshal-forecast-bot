@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -45,14 +45,51 @@ class EvalQuestion:
 
 
 @dataclass(frozen=True)
+class QbafAgentProfile:
+    id: str
+    retrieval_mode: Literal["argllm_base", "rag_asknews", "rag_exa"]
+    description: str = ""
+
+
+def _default_qbaf_agent_profiles() -> list[QbafAgentProfile]:
+    return [
+        QbafAgentProfile(
+            id="argllm_base",
+            retrieval_mode="argllm_base",
+            description="Base argument-only agent without retrieval context.",
+        ),
+        QbafAgentProfile(
+            id="rag_asknews",
+            retrieval_mode="rag_asknews",
+            description="RAG agent using AskNews time-boxed context.",
+        ),
+        QbafAgentProfile(
+            id="rag_exa",
+            retrieval_mode="rag_exa",
+            description="RAG agent using Exa historical summaries.",
+        ),
+    ]
+
+
+@dataclass(frozen=True)
 class EvalStrategyConfig:
     id: str
     enabled: bool
     num_runs: int = 1
+    strategy_kind: Literal["forecast_pipeline", "qbaf_multi_agent"] = "forecast_pipeline"
     outside_view_enabled: bool = True
     inside_view_enabled: bool = True
     prediction_market_enabled: bool = False
     final_forecast_use_agent: bool = True
+    qbaf_depth: int = 2
+    qbaf_similarity_threshold: float = 0.5
+    qbaf_similarity_backend: Literal["llm_pairwise", "embedding_cosine", "tfidf_cosine"] = "llm_pairwise"
+    qbaf_base_aggregation: Literal["avg", "max"] = "avg"
+    qbaf_root_base_mode: Literal["fixed_0_5", "estimated"] = "fixed_0_5"
+    qbaf_agent_profiles: list[QbafAgentProfile] = field(default_factory=_default_qbaf_agent_profiles)
+    qbaf_pairwise_model: str | None = None
+    qbaf_generation_model: str | None = None
+    qbaf_max_nodes_per_depth: int = 6
     env_overrides: dict[str, str] = field(default_factory=dict)
     model_overrides: dict[str, str] = field(default_factory=dict)
 

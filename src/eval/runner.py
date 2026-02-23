@@ -185,14 +185,23 @@ async def _run_single_strategy_question(
         as_of_iso = to_iso_z(question.open_time)
 
         with _temporary_eval_overrides(strategy, as_of_time_iso=as_of_iso):
-            probability_yes, _comment, diagnostics = await forecast_module.get_binary_prediction(
-                question_details,
-                num_runs=num_runs,
-                prediction_market_data=prediction_market_data,
-                outside_view_enabled=strategy.outside_view_enabled,
-                inside_view_enabled=strategy.inside_view_enabled,
-                final_forecast_use_agent=strategy.final_forecast_use_agent,
-            )
+            if strategy.strategy_kind == "qbaf_multi_agent":
+                from .qbaf_strategy import predict_binary_qbaf
+
+                probability_yes, diagnostics = await predict_binary_qbaf(
+                    strategy=strategy,
+                    question_details=question_details,
+                    num_runs=num_runs,
+                )
+            else:
+                probability_yes, _comment, diagnostics = await forecast_module.get_binary_prediction(
+                    question_details,
+                    num_runs=num_runs,
+                    prediction_market_data=prediction_market_data,
+                    outside_view_enabled=strategy.outside_view_enabled,
+                    inside_view_enabled=strategy.inside_view_enabled,
+                    final_forecast_use_agent=strategy.final_forecast_use_agent,
+                )
 
         maybe_probs = diagnostics.get("all_probabilities") if isinstance(diagnostics, dict) else None
         if isinstance(maybe_probs, list):

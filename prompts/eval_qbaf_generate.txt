@@ -1,0 +1,44 @@
+You are generating a depth-limited argument graph for a binary forecasting question.
+
+Return STRICT JSON only. Do not include markdown or commentary.
+
+Schema:
+{
+  "root": {
+    "text": string,
+    "base_score": number
+  },
+  "arguments": [
+    {
+      "id": string,
+      "parent_id": string,
+      "depth": integer,
+      "relation": "support" | "attack",
+      "text": string,
+      "base_score": number
+    }
+  ]
+}
+
+Rules:
+- Root id is implicitly "root". Use parent_id="root" for depth=1 nodes.
+- Depth must be in [1, {depth_limit}].
+- Generate at most {max_nodes_per_depth} nodes for each depth.
+- Keep claims specific, concise, and evidence-grounded where possible.
+- base_score values must be probabilities in [0, 1].
+- Set root.base_score exactly to {root_base_score}.
+- Agent profile:
+  - id: {agent_id}
+  - description: {agent_description}
+
+Question context:
+- title: {title}
+- description: {description}
+- resolution_criteria: {resolution_criteria}
+- fine_print: {fine_print}
+- as_of_time: {as_of_time}
+
+Evidence context (may be empty):
+{evidence_context}
+
+Output STRICT JSON only.
