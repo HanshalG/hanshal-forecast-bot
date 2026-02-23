@@ -103,12 +103,15 @@ async def get_binary_prediction(
     question_details: dict,
     num_runs: int,
     prediction_market_data: str = "None",
+    use_asknews: bool = True,
 ) -> Tuple[float, str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
     shared_news_context_lock = asyncio.Lock()
 
     async def _get_shared_news_context() -> str | None:
         nonlocal shared_news_context_task
+        if not use_asknews:
+            return ""
         if num_runs <= 1:
             return None
 
@@ -277,12 +280,15 @@ async def get_numeric_prediction(
     question_details: dict,
     num_runs: int,
     prediction_market_data: str = "",
+    use_asknews: bool = True,
 ) -> Tuple[List[float], str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
     shared_news_context_lock = asyncio.Lock()
 
     async def _get_shared_news_context() -> str | None:
         nonlocal shared_news_context_task
+        if not use_asknews:
+            return ""
         if num_runs <= 1:
             return None
 
@@ -478,12 +484,15 @@ async def get_multiple_choice_prediction(
     question_details: dict,
     num_runs: int,
     prediction_market_data: str = "",
+    use_asknews: bool = True,
 ) -> Tuple[Dict[str, float], str, dict[str, Any]]:
     shared_news_context_task: asyncio.Task[str] | None = None
     shared_news_context_lock = asyncio.Lock()
 
     async def _get_shared_news_context() -> str | None:
         nonlocal shared_news_context_task
+        if not use_asknews:
+            return ""
         if num_runs <= 1:
             return None
 
@@ -670,6 +679,7 @@ async def forecast_individual_question(
     num_runs_per_question: int,
     skip_previously_forecasted_questions: bool,
     get_prediction_market: bool = False,
+    use_asknews: bool = True,
 ) -> str:
     # Reset token usage at start of each forecast
     from src.token_cost import (
@@ -737,19 +747,31 @@ async def forecast_individual_question(
 
         if question_type == "binary":
             forecast, comment, prediction_diagnostics = await get_binary_prediction(
-                question_details, num_runs_per_question, prediction_market_data_str
+                question_details,
+                num_runs_per_question,
+                prediction_market_data_str,
+                use_asknews=use_asknews,
             )
         elif question_type == "numeric":
             forecast, comment, prediction_diagnostics = await get_numeric_prediction(
-                question_details, num_runs_per_question, prediction_market_data_str
+                question_details,
+                num_runs_per_question,
+                prediction_market_data_str,
+                use_asknews=use_asknews,
             )
         elif question_type == "discrete":
             forecast, comment, prediction_diagnostics = await get_numeric_prediction(
-                question_details, num_runs_per_question, prediction_market_data_str
+                question_details,
+                num_runs_per_question,
+                prediction_market_data_str,
+                use_asknews=use_asknews,
             )
         elif question_type == "multiple_choice":
             forecast, comment, prediction_diagnostics = await get_multiple_choice_prediction(
-                question_details, num_runs_per_question, prediction_market_data_str
+                question_details,
+                num_runs_per_question,
+                prediction_market_data_str,
+                use_asknews=use_asknews,
             )
         else:
             raise ValueError(f"Unknown question type: {question_type}")
@@ -876,6 +898,7 @@ async def forecast_individual_manual_question(
     submit_prediction: bool,
     num_runs_per_question: int,
     get_prediction_market: bool = False,
+    use_asknews: bool = True,
 ) -> str:
     # Reset token usage at start of each forecast
     from src.token_cost import (
@@ -941,19 +964,31 @@ async def forecast_individual_manual_question(
 
         if question_type == "binary":
             forecast, comment, prediction_diagnostics = await get_binary_prediction(
-                question_details, num_runs_per_question, prediction_market_data_str
+                question_details,
+                num_runs_per_question,
+                prediction_market_data_str,
+                use_asknews=use_asknews,
             )
         elif question_type == "numeric":
             forecast, comment, prediction_diagnostics = await get_numeric_prediction(
-                question_details, num_runs_per_question, prediction_market_data_str
+                question_details,
+                num_runs_per_question,
+                prediction_market_data_str,
+                use_asknews=use_asknews,
             )
         elif question_type == "discrete":
             forecast, comment, prediction_diagnostics = await get_numeric_prediction(
-                question_details, num_runs_per_question, prediction_market_data_str
+                question_details,
+                num_runs_per_question,
+                prediction_market_data_str,
+                use_asknews=use_asknews,
             )
         elif question_type == "multiple_choice":
             forecast, comment, prediction_diagnostics = await get_multiple_choice_prediction(
-                question_details, num_runs_per_question, prediction_market_data_str
+                question_details,
+                num_runs_per_question,
+                prediction_market_data_str,
+                use_asknews=use_asknews,
             )
         else:
             raise ValueError(f"Unknown question type: {question_type}")
@@ -1038,7 +1073,11 @@ async def forecast_questions(
     num_runs_per_question: int,
     skip_previously_forecasted_questions: bool,
     get_prediction_market: bool = False,
+    use_asknews: bool = True,
 ) -> None:
+    if not use_asknews:
+        print("AskNews disabled for this run.")
+
     forecast_tasks = [
         forecast_individual_question(
             question_id,
@@ -1047,6 +1086,7 @@ async def forecast_questions(
             num_runs_per_question,
             skip_previously_forecasted_questions,
             get_prediction_market,
+            use_asknews,
         )
         for question_id, post_id in open_question_id_post_id
     ]
@@ -1132,13 +1172,18 @@ async def forecast_manual_questions(
     submit_prediction: bool,
     num_runs_per_question: int,
     get_prediction_market: bool = False,
+    use_asknews: bool = True,
 ) -> None:
+    if not use_asknews:
+        print("AskNews disabled for this run.")
+
     forecast_tasks = [
         forecast_individual_manual_question(
             question_details,
             submit_prediction,
             num_runs_per_question,
             get_prediction_market,
+            use_asknews,
         )
         for question_details in manual_questions
     ]

@@ -37,7 +37,7 @@ jobs:
         run: poetry install --no-interaction --no-root
       - name: Run bot
         run: |
-          poetry run python main.py --mode minibench --submit --num-runs 5 --skip-prev --get-prediction-market --log-to-supabase
+          poetry run python main.py --mode minibench --submit --num-runs 5 --skip-prev --get-prediction-market --log-to-supabase --no-ask-news
         # this reads the environment variables from the github repository.
         # Store under Settings --> Secrets and variables --> Actions
         env:

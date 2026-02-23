@@ -65,6 +65,11 @@ Submit to Metaculus + include market context + enable Supabase logging:
 poetry run python main.py --mode spring-aib-2026 --submit --num-runs 5 --skip-prev --get-prediction-market --log-to-supabase
 ```
 
+Run without AskNews:
+```bash
+poetry run python main.py --mode spring-aib-2026 --no-ask-news
+```
+
 ### Manual Question File Format
 - The file can be JSON array or JSON object with `questions` array.
 - Required common fields: `title`, `type`.

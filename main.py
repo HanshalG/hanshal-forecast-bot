@@ -66,6 +66,12 @@ if __name__ == "__main__":
         default=False,
         help="Enable Supabase logging for this run (default: disabled unless this flag is provided)",
     )
+    parser.add_argument(
+        "--ask-news",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable AskNews context retrieval (use --no-ask-news to disable)",
+    )
     args = parser.parse_args()
     set_supabase_logging_enabled(args.log_to_supabase)
 
@@ -92,6 +98,7 @@ if __name__ == "__main__":
                 submit_prediction=False,
                 num_runs_per_question=args.num_runs_per_question,
                 get_prediction_market=args.get_prediction_market,
+                use_asknews=args.ask_news,
             )
         )
         raise SystemExit(0)
@@ -103,5 +110,6 @@ if __name__ == "__main__":
             args.num_runs_per_question,
             args.skip_previously_forecasted_questions,
             get_prediction_market=args.get_prediction_market,
+            use_asknews=args.ask_news,
         )
     )

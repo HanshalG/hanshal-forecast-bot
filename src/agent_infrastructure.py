@@ -30,8 +30,8 @@ REASONING_EFFORT = "medium"
 TOOL_CALL_LIMITS = {
     "global": {"thread_limit": 20, "run_limit": 20},
     "tools": {
-        "exa_search": {"thread_limit": 5, "run_limit": 5},
-        "exa_answer": {"thread_limit": 5, "run_limit": 5},
+        "exa_search": {"thread_limit": 10, "run_limit": 10},
+        "exa_answer": {"thread_limit": 10, "run_limit": 10},
         "python_repl": {"thread_limit": 5, "run_limit": 5},
     },
 }
