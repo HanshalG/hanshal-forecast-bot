@@ -22,8 +22,7 @@ from src.token_cost import (
 )
 from src.utils import ASKNEWS_STATS
 
-from .manual_context_loader import load_manual_context_file
-from .metaculus_resolution_loader import join_context_and_resolutions
+from .eval_question_file_loader import load_eval_question_file
 from .scoring import compute_brier, compute_calibration_bins, compute_log_loss, summarize_strategies
 from .strategy_config import load_strategy_files
 from .timebox import to_iso_z, with_question_as_of_time
@@ -76,6 +75,15 @@ def _temporary_eval_overrides(strategy: EvalStrategyConfig, *, as_of_time_iso: s
     model_inside = strategy.model_overrides.get("INSIDE_VIEW_MODEL")
     model_final = strategy.model_overrides.get("FINAL_FORECAST_MODEL")
     model_summary = strategy.model_overrides.get("SUMMARY_MODEL")
+    reasoning_effort = env_updates.get("REASONING_EFFORT")
+    final_forecast_reasoning_effort = env_updates.get("FINAL_FORECAST_REASONING_EFFORT")
+    tool_summary_reasoning_effort = env_updates.get("TOOL_SUMMARY_REASONING_EFFORT")
+    clear_summary_llm_cache = (
+        hasattr(agent_infrastructure, "_get_tool_summary_llm")
+        and hasattr(agent_infrastructure._get_tool_summary_llm, "cache_clear")
+    )
+    if clear_summary_llm_cache:
+        agent_infrastructure._get_tool_summary_llm.cache_clear()
 
     if model_outside:
         patch(outside_view, "OUTSIDE_VIEW_MODEL", model_outside)
@@ -98,11 +106,25 @@ def _temporary_eval_overrides(strategy: EvalStrategyConfig, *, as_of_time_iso: s
         patch(exa_utils, "SUMMARY_MODEL", model_summary)
         patch(agent_infrastructure, "TOOL_SUMMARY_MODEL", model_summary)
 
+    if reasoning_effort:
+        patch(agent_infrastructure, "REASONING_EFFORT", reasoning_effort)
+
+    if tool_summary_reasoning_effort:
+        patch(agent_infrastructure, "TOOL_SUMMARY_REASONING_EFFORT", tool_summary_reasoning_effort)
+    elif reasoning_effort:
+        patch(agent_infrastructure, "TOOL_SUMMARY_REASONING_EFFORT", reasoning_effort)
+
+    if final_forecast_reasoning_effort:
+        patch(final_forecast, "FINAL_FORECAST_REASONING_EFFORT", final_forecast_reasoning_effort)
+
     patch(final_forecast, "FINAL_FORECAST_USE_AGENT", strategy.final_forecast_use_agent)
 
     try:
         yield
     finally:
+        if clear_summary_llm_cache:
+            agent_infrastructure._get_tool_summary_llm.cache_clear()
+
         for module, name, old_value in reversed(patches):
             setattr(module, name, old_value)
 
@@ -240,16 +262,11 @@ async def _run_single_strategy_question(
 
 async def run_eval(
     *,
-    post_ids: list[int],
-    context_file: str,
+    eval_question_file: str,
     strategy_files: list[str],
-    num_runs: int,
     output_dir: str,
     question_concurrency: int = 1,
 ) -> dict[str, Any]:
-    if not post_ids:
-        raise ValueError("post_ids cannot be empty")
-
     strategies = load_strategy_files(strategy_files, force_nano_models=True)
     enabled_strategies = [s for s in strategies if s.enabled]
     if not enabled_strategies:
@@ -257,11 +274,8 @@ async def run_eval(
     if question_concurrency < 1:
         raise ValueError("question_concurrency must be >= 1")
 
-    context_by_post_id = load_manual_context_file(context_file, expected_post_ids=post_ids)
-    questions = join_context_and_resolutions(
-        post_ids=post_ids,
-        manual_context_by_post_id=context_by_post_id,
-    )
+    eval_questions_document = load_eval_question_file(eval_question_file)
+    questions = eval_questions_document.questions
 
     run_id = _timestamp_run_id()
     out_dir = Path(output_dir) / run_id
@@ -276,7 +290,7 @@ async def run_eval(
                 return await _run_single_strategy_question(
                     strategy=strategy,
                     question=question,
-                    num_runs=num_runs,
+                    num_runs=strategy.num_runs,
                 )
 
         strategy_rows = await asyncio.gather(
@@ -290,10 +304,10 @@ async def run_eval(
     run_config_snapshot = {
         "run_id": run_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "post_ids": post_ids,
-        "context_file": context_file,
+        "eval_question_file": eval_question_file,
+        "eval_question_schema_version": eval_questions_document.schema_version,
+        "eval_question_count": len(questions),
         "strategy_files": strategy_files,
-        "num_runs": num_runs,
         "question_concurrency": question_concurrency,
         "output_dir": str(out_dir),
         "strategies": [asdict(s) for s in enabled_strategies],

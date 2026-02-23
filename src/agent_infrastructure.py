@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ToolCallLimitMiddleware, after_model
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 # from langchain_community.tools import BraveSearch
 from langchain_experimental.tools import PythonREPLTool
@@ -26,7 +26,8 @@ load_dotenv()
 LLM_MODEL = os.getenv("INSIDE_VIEW_MODEL", "gpt-5-mini")
 TOOL_SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-5-nano")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-REASONING_EFFORT = "medium"
+REASONING_EFFORT = os.getenv("REASONING_EFFORT", "medium")
+TOOL_SUMMARY_REASONING_EFFORT = os.getenv("TOOL_SUMMARY_REASONING_EFFORT", REASONING_EFFORT)
 
 # --- Tool Call Limits (defaults mirror LangChain docs examples) ---
 TOOL_CALL_LIMITS = {
@@ -37,6 +38,23 @@ TOOL_CALL_LIMITS = {
         "python_repl": {"thread_limit": 5, "run_limit": 5},
     },
 }
+
+
+def _parse_positive_int_env(name: str, default: int) -> int:
+    value = (os.getenv(name) or "").strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
+
+
+MAX_PARALLEL_TOOL_CALLS_PER_ITERATION = _parse_positive_int_env(
+    "MAX_PARALLEL_TOOL_CALLS_PER_ITERATION",
+    3,
+)
 
 # --- Tool Definitions ---
 
@@ -110,7 +128,7 @@ def _get_tool_summary_llm() -> ChatOpenAI:
         api_key=os.getenv("OPENROUTER_API_KEY"),
         base_url=OPENROUTER_BASE_URL,
         temperature=0,
-        reasoning={"effort": REASONING_EFFORT},
+        reasoning={"effort": TOOL_SUMMARY_REASONING_EFFORT},
     )
 
 
@@ -300,6 +318,9 @@ def render_tool_call_limits_for_prompt() -> str:
         lines.append(
             f"- Global (all tools combined): thread_limit={global_thread_limit}, run_limit={global_run_limit}"
         )
+    lines.append(
+        f"- Max tool calls in a single iteration: {MAX_PARALLEL_TOOL_CALLS_PER_ITERATION}"
+    )
 
     per_tool_limits = TOOL_CALL_LIMITS.get("tools", {})
     available_tool_names = {getattr(tool, "name", "") for tool in ALL_TOOLS}
@@ -345,6 +366,58 @@ def _build_tool_call_limit_middleware(active_tools: list) -> list:
 
     return middleware
 
+
+@after_model
+def _limit_parallel_tool_calls(state, _runtime):
+    """Cap tool calls per model turn while preserving tool-call/output integrity."""
+    messages = state.get("messages") or []
+    if not messages:
+        return None
+
+    last_message = messages[-1]
+    if not isinstance(last_message, AIMessage):
+        return None
+
+    tool_calls = last_message.tool_calls or []
+    limit = MAX_PARALLEL_TOOL_CALLS_PER_ITERATION
+    if limit < 1 or len(tool_calls) <= limit:
+        return None
+
+    allowed_calls = tool_calls[:limit]
+    blocked_calls = tool_calls[limit:]
+    last_message.tool_calls = allowed_calls
+
+    blocked_outputs: list[ToolMessage] = []
+    for idx, tool_call in enumerate(blocked_calls, start=1):
+        call_id = str(tool_call.get("id") or "").strip()
+        if not call_id:
+            continue
+        tool_name = str(tool_call.get("name") or "tool")
+        tool_args = tool_call.get("args", {})
+        raw_result = (
+            "Tool call blocked by MAX_PARALLEL_TOOL_CALLS_PER_ITERATION="
+            f"{limit}. This call can be retried in a later model turn."
+        )
+        blocked_outputs.append(
+            ToolMessage(
+                content=raw_result,
+                name=tool_name,
+                tool_call_id=call_id,
+                status="error",
+                artifact={
+                    "raw_result": raw_result,
+                    "tool_input": tool_args if isinstance(tool_args, dict) else {},
+                    "blocked_parallel_index": idx,
+                    "parallel_limit": limit,
+                },
+            )
+        )
+
+    if blocked_outputs:
+        return {"messages": blocked_outputs}
+    return None
+
+
 @after_model
 def _count_tool_calls(state, _runtime):
     messages = state.get("messages") or []
@@ -363,15 +436,26 @@ def _count_tool_calls(state, _runtime):
 
 def create_agent_graph(model_name: str = LLM_MODEL):
     """Create and compile the agent with tool-call limits."""
+    # OpenAI-compatible providers support `parallel_tool_calls` as a boolean:
+    # - False => at most one tool call per model turn.
+    # - True  => model may emit multiple tool calls in a single turn.
+    # We map the existing env setting onto that supported control surface.
+    parallel_tool_calls_enabled = MAX_PARALLEL_TOOL_CALLS_PER_ITERATION > 1
+
     llm = ChatOpenAI(
         model=model_name,
         api_key=os.getenv("OPENROUTER_API_KEY"),
         base_url=OPENROUTER_BASE_URL,
         temperature=0,
-        reasoning={"effort": REASONING_EFFORT}
+        reasoning={"effort": REASONING_EFFORT},
+        model_kwargs={"parallel_tool_calls": parallel_tool_calls_enabled},
     )
     active_tools = _active_tools_for_current_mode()
-    middleware = [*_build_tool_call_limit_middleware(active_tools), _count_tool_calls]
+    middleware = [
+        *_build_tool_call_limit_middleware(active_tools),
+        _limit_parallel_tool_calls,
+        _count_tool_calls,
+    ]
 
     app = create_agent(
         model=llm,

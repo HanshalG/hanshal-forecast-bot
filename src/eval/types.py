@@ -48,6 +48,7 @@ class EvalQuestion:
 class EvalStrategyConfig:
     id: str
     enabled: bool
+    num_runs: int = 1
     outside_view_enabled: bool = True
     inside_view_enabled: bool = True
     prediction_market_enabled: bool = False

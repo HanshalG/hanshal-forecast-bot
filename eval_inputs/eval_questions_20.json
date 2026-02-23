@@ -1,0 +1,400 @@
+{
+  "schema_version": "v1",
+  "generated_at": "2026-02-23T17:14:54.284795+00:00",
+  "source": {
+    "builder": "scripts/build_eval_question_file_from_api2_list.py",
+    "post_ids": [
+      39523,
+      39575,
+      39476,
+      39451,
+      39490,
+      40283,
+      39383,
+      39998,
+      40761,
+      39461,
+      39435,
+      39484,
+      39566,
+      39622,
+      39376,
+      40210,
+      40947,
+      39518,
+      39608,
+      40285
+    ],
+    "api_endpoint": "https://www.metaculus.com/api2/questions/",
+    "context_strategy": "api2_questions_pagination",
+    "page_limit": 100
+  },
+  "questions": [
+    {
+      "post_id": 39523,
+      "question_id": 38900,
+      "title": "Will China be able to mass produce humanoid robots by the end of 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2024-02-25 02:58:00 and can be found [here](https://www.metaculus.com/questions/19878). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\n#### From the [ Humanoid robot Wikipedia page](https://en.wikipedia.org/wiki/Humanoid_robot)\n\nA humanoid robot is a robot resembling the human body in shape. The design may be for functional purposes, such as interacting with human tools and environments, for experimental purposes, such as the study of bipedal locomotion, or for other purposes. In general, humanoid robots have a torso, a head, two arms, and two legs, though some humanoid robots may replicate only part of the body, for example, from the waist up. Some humanoid robots also have heads designed to replicate human facial features such as eyes and mouths. Androids are humanoid robots built to aesthetically resemble humans.\n\n![Chinese robots](https://cdn.i-scmp.com/sites/default/files/styles/1200x800/public/d8/images/canvas/2023/11/03/48249435-6ad4-4b8a-bd02-c43ede74bce4_55bf4566.jpg?itok=cYZpFgtd&v=1699004362)\n\n\n####Current progress\n\nBy 2025, China aims to establish an initial humanoid robot innovation system, achieving breakthroughs in crucial components such as “brains, cerebellum, and limbs,” while ensuring a safe and efficient supply of core components. The production level for these robots is expected to reach an advanced international standard, with mass production occurring. These robots are anticipated to demonstrate their effectiveness across various fields, from manufacturing to livelihood services.\n\nAmong China's most advanced projects are those by Xiaomi and Fourier Intelligence. Xiaomi is working on its CyberOne, a robot that is supposed to be capable not only of perceiving space in 3D, but also of recognising individuals and interpreting their gestures, expressions and emotions. Combined with artificial intelligence, it could one day interact directly with humans. For its part, Fourier Intelligence is preparing to launch its first humanoid robot, the GR-1, specialised in medical actions, capable of moving at 5 km/h and carrying loads of several dozen kilogrammes. Its first deliveries are scheduled for 2024.\n\n####For more details on China's progress see:\n\n* https://www.nextbigfuture.com/2023/11/china-ministry-pushes-for-humanoid-robot-mass-production-by-2025-and-100-billion-market-by-2030.html?utm_source=dlvr.it&utm_medium=twitter\n* https://www.thestar.com.my/tech/tech-news/2023/11/09/china-aims-to-mass-produce-humanoid-robots-by-2027\n* https://www.scmp.com/news/china/politics/article/3240259/china-says-humanoid-robots-are-new-engine-growth-pushes-mass-production-2025-and-world-leadership\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":19878,\"question_id\":19878}}`",
+      "resolution_criteria": "The question resolves Yes if credible reports indicate a robotics company with headquarters in China has manufactured more than a thousand humanoid robots of an identical model before the end of 2025.",
+      "fine_print": "A humanoid robot in this context means: - \n\n* A bi-pedal robot with two arms, two legs, a head and torso\n * That can perform at least the basic tasks of walking, picking up objects and carrying.\n* These will perform tasks autonomously driven by A.I.\n* They should not be directly controlled by humans.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-10-21T17:26:35Z",
+      "actual_resolve_time": "2025-12-28T22:00:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39523/"
+      }
+    },
+    {
+      "post_id": 39575,
+      "question_id": 38952,
+      "title": "Will the US enact export controls for some generative AI software before 2026?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2023-05-17 15:19:00 and can be found [here](https://www.metaculus.com/questions/17102). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nAs of May 2023, US law does not have export controls on the sale of software services that include powerful generative AI. As such, OpenAI, Anthropic, Google, and Microsoft can sell LLM-assisted document writing, image generation, video generation, etc. to enterprises worldwide (up to more general export controls not focused on AI.)\n\nIn Oct 2022, the [US implemented export controls](https://en.wikipedia.org/wiki/United_States_New_Export_Controls_on_Advanced_Computing_and_Semiconductors_to_China), that, roughly speaking, bans export of semiconductors that involve US in their manufacturing chain to China.\n\nAs the capabilities of generative AI systems grow, and as enterprise customers learn more how to extract certain types of knowledge (e.g. how to create Deep Fakes or create armies of online bots), one way US policymakers might address risks would be to apply exports control to software that are similar to the export controls for hardware used for training AI.\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":17102,\"question_id\":17102}}`",
+      "resolution_criteria": "This question resolves as **YES** if, by Dec 31 2025, the US imposes export controls on some generative AI software, and **NO** otherwise.",
+      "fine_print": "The export controls need not be specifically to China - anything under the standard export regime of the US would qualify.\n\nThe export controls must be specifically related to AI that can generate content. It is not sufficient if software produced by Microsoft or OpenAI cannot be exported to certain countries for other reasons - such as export bans on all software, or on all commercial products sold to certain countries.\n\nThese need to be actual export controls, as per the 2022 controls on semiconductors. Taxes or trade deals are not considered here.",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-10-17T16:08:26Z",
+      "actual_resolve_time": "2026-01-27T17:47:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39575/"
+      }
+    },
+    {
+      "post_id": 39476,
+      "question_id": 38853,
+      "title": "Will US imports from Brazil in November 2025 exceed those of November 2024?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2025-07-24 13:00:00 and can be found [here](https://www.metaculus.com/questions/38918). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nIn mid July 2025, [according to CNN:](https://edition.cnn.com/2025/07/17/americas/trump-not-emperor-world-lula-intl)\n\n> Trump threatened Brazil with crippling tariffs of 50% starting August 1, according to a letter posted to his social media platform, Truth Social.\n\n> In the letter, Trump linked the astronomical tariff threat to what he described as a “witch hunt” trial against Brazil’s right-wing former president, Jair Bolsonaro.\n\n> Bolsonaro, a close Trump ally, is facing trial in Brazil for allegedly attempting to overthrow Lula following his presidential win in 2022. He could face more than four decades behind bars if found guilty of masterminding the coup.\n\n> Speaking exclusively to CNN’s Christiane Amanpour on Thursday, da Silva, who is widely known as Lula, said that Trump’s threats had broken away from “protocol” and argued that his predecessor’s fate cannot be part of trade negotiations.\n\nTop products the US imports from Brazil [are](https://www.usimportdata.com/blogs/us-imports-exports-trade-relations-with-brazil) coffee, oil, and sugar. Brazil provides about 37% of America's domestic sugar consumption needs, so a potential trade war could be coming at a time when The Coca-Cola Company [just announced](https://www.axios.com/2025/07/22/trump-coke-cane-sugar) it was switching from high fructose corn syrup to cane sugar in its sodas.&#x20;\n\nIn the past couple of years, the US's trade with Brazil has been as follows:\n\n| Year | Month          | Exports (US\\$ m) | Imports (US\\$ m) |   Balance\\* |\n| ---- | -------------- | ---------------: | ---------------: | ----------: |\n| 2023 | January        |          3,592.3 |          3,100.6 |       491.7 |\n| 2023 | February       |          3,586.1 |          2,564.0 |     1,022.0 |\n| 2023 | March          |          4,119.6 |          3,170.1 |       949.5 |\n| 2023 | April          |          3,464.2 |          2,649.7 |       814.5 |\n| 2023 | May            |          4,051.7 |          3,066.0 |       985.6 |\n| 2023 | June           |          3,940.4 |          3,555.7 |       384.7 |\n| 2023 | July           |          3,427.9 |          3,320.5 |       107.4 |\n| 2023 | August         |          3,755.9 |          3,166.2 |       589.7 |\n| 2023 | September      |          3,662.7 |          3,944.0 |      −281.3 |\n| 2023 | October        |          3,580.8 |          3,127.2 |       453.6 |\n| 2023 | November       |          3,623.6 |          3,568.3 |        55.3 |\n| 2023 | December       |          3,734.2 |          3,828.1 |       −94.0 |\n| 2023 | **TOTAL 2023** |     **44,539.2** |     **39,060.5** | **5,478.7** |\n| 2024 | January        |          3,514.3 |          3,756.2 |      −242.0 |\n| 2024 | February       |          3,761.7 |          3,152.8 |       608.9 |\n| 2024 | March          |          3,928.1 |          3,181.9 |       746.2 |\n| 2024 | April          |          3,812.3 |          3,247.2 |       565.1 |\n| 2024 | May            |          4,020.4 |          3,702.4 |       318.0 |\n| 2024 | June           |          4,264.4 |          3,383.5 |       880.9 |\n| 2024 | July           |          4,175.8 |          3,537.8 |       638.0 |\n| 2024 | August         |          4,764.0 |          3,940.8 |       823.2 |\n| 2024 | September      |          4,472.5 |          3,327.1 |     1,145.3 |\n| 2024 | October        |          3,937.9 |          3,329.3 |       608.6 |\n| 2024 | November       |          4,167.8 |          3,978.8 |       189.0 |\n| 2024 | December       |          4,317.0 |          3,810.8 |       506.2 |\n| 2024 | **TOTAL 2024** |     **49,136.1** |     **42,348.4** | **6,787.7** |\n| 2025 | January        |          3,855.7 |          3,770.7 |        85.0 |\n| 2025 | February       |          4,073.1 |          3,344.5 |       728.6 |\n| 2025 | March          |          4,654.1 |          3,898.1 |       756.0 |\n| 2025 | April          |          4,254.6 |          3,184.2 |     1,070.5 |\n| 2025 | May            |          4,811.3 |          4,224.1 |       587.1 |\n|      |                |                  |                  |             |\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":38918,\"question_id\":38268}}`",
+      "resolution_criteria": "This question resolves as **Yes** if the dollar amount of imports into the United States from Brazil for November 2025 exceeds the amount for November 2024, according to data presented by the US Census Bureau at its [Trade in Goods with Brazil](https://www.census.gov/foreign-trade/balance/c3510.html) tracker.&#x20;",
+      "fine_print": "Question resolves based on the amount shown when first accessed by Metaculus. Later updates will not cause the question to re-resolve.",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-09-24T16:30:25Z",
+      "actual_resolve_time": "2026-01-30T14:10:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39476/"
+      }
+    },
+    {
+      "post_id": 39451,
+      "question_id": 38828,
+      "title": "Will housing prices in Madrid rise by more than 18% in 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2025-02-27 12:57:00 and can be found [here](https://www.metaculus.com/questions/35570). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nIn 2024, house prices in the city of Madrid rose by 20%, and the Madrid real estate market is expected to continue its upward trajectory in 2025. According to [ <u>Caixabank Research</u> ](https://www.caixabankresearch.com/en/sectoral-analysis/real-estate/spanish-real-estate-market-2024-2025-expansive-mode), the current state of the Spanish real estate market is generally characterized by strong demand and tight supply. [ <u>They forecast</u> ](https://www.caixabankresearch.com/en/sectoral-analysis/real-estate/new-forecasts-spanish-real-estate-sector-expansionary-cycle-takes) a 6%-7% increase for house prices in Spain.\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":35570,\"question_id\":35020}}`",
+      "resolution_criteria": "The question will be answered as **Yes** if, according to the sales price data published on the [ <u>Idealista portal</u> ](https://www.idealista.com/sala-de-prensa/informes-precio-vivienda/venta/madrid-comunidad/madrid-provincia/madrid/), the average price of housing in the **city of Madrid** per square meter rises by more than 18% from December 2024 to December 2025. It will be answered as **No** if the increase is 18% or less, or if there is a decrease in prices.",
+      "fine_print": "* At the time of writing this question, December 2024 prices are €4,952/m² according to the graph and table \"Historical variation in sales prices in Madrid\" in the resolution source. However, the increase will be calculated based on the December 2024 prices shown when the December 2025 data is published.\n * Nominal figures will be compared, without discounting the effect of inflation.\n\n • If Idealista has not published data for December 2025 by January 7, this question will be resolved based on the increase from November 2024 to November 2025. If this is not available, this question will be **cancelled**.",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-09-24T17:57:06Z",
+      "actual_resolve_time": "2026-01-20T13:05:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39451/"
+      }
+    },
+    {
+      "post_id": 39490,
+      "question_id": 38867,
+      "title": "Will the Trump administration attempt to withdraw from key international arms control agreements in 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2025-03-18 15:33:28 and can be found [here](https://www.metaculus.com/questions/36025). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nThe Trump administration’s first term saw a pattern of withdrawing from international arms control agreements, including:\n\n* **INF Treaty (**[**2019**](https://www.defense.gov/News/News-Stories/article/article/1924779/us-withdraws-from-intermediate-range-nuclear-forces-treaty/)**)** – U.S. withdrawal from the Intermediate-Range Nuclear Forces Treaty with Russia.\n* **Open Skies Treaty (**[**2020**](https://www.armscontrol.org/act/2020-12/news/us-completes-open-skies-treaty-withdrawal)**)** – Trump announced withdrawal, citing Russian non-compliance.\n* **Iran Nuclear Deal (**[**2018**](https://www.nytimes.com/2018/05/08/world/middleeast/trump-iran-nuclear-deal.html)**)** – The U.S. exited the JCPOA, leading to renewed tensions.\n\nWith Trump's return to office in 2025, there is renewed concern that his administration may withdraw from key arms control agreements, particularly those seen as restricting U.S. military capabilities. The agreements most at risk include:\n\n1. [**New START**](https://www.state.gov/new-start-treaty) **(Strategic Arms Reduction Treaty)**, the last remaining U.S.-Russia nuclear arms control treaty, limiting strategic nuclear warheads and delivery systems. It is set to expire in 2026, but there are concerns that Trump may refuse renewal or suspend compliance before then.\n2. [**The Chemical Weapons Convention (CWC)**](https://www.opcw.org/chemical-weapons-convention), a global ban on chemical weapons with strong bipartisan support, but potential friction due to compliance disputes with China and Russia.\n3. [**The Treaty on the Non-Proliferation of Nuclear Weapons (NPT)**](https://disarmament.unoda.org/wmd/nuclear/npt/), the cornerstone of global nuclear non-proliferation. While withdrawal is unlikely, Trump has expressed skepticism toward arms control constraints in the past.\n4. [**The Comprehensive Nuclear-Test-Ban Treaty (CTBT)**](https://www.ctbto.org/our-mission/the-treaty), though never ratified by the U.S., Trump officials previously floated the idea of resuming nuclear testing—potentially violating the spirit of the treaty.\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":36025,\"question_id\":35459}}`",
+      "resolution_criteria": "This question will resolve as **Yes** if, before January 1, 2026, credible sources report that the Trump administration has formally attempted to withdraw from or significantly reduce U.S. participation in at least one of the following seven international arms control agreements:\n\n* New START (Strategic Arms Reduction Treaty)\n* The Chemical Weapons Convention (CWC)\n* The Treaty on the Non-Proliferation of Nuclear Weapons (NPT)\n* The Comprehensive Nuclear-Test-Ban Treaty (CTBT)\n* Biological Weapons Convention (BWC)\n* Convention on Certain Conventional Weapons (CCW)\n* Outer Space Treaty (OST)\n\nA formal attempt to withdraw includes, but is not limited to, any of the following:\n\n1. Official notification of withdrawal: The U.S. government formally notifies treaty partners, the United Nations, or other relevant bodies of its intent to exit an arms control agreement.\n2. Legally binding action: The administration takes executive action, submits a withdrawal request to Congress (where required), or engages in legal or procedural steps toward exiting an agreement.\n3. Suspension of compliance: The administration officially announces that it will no longer comply with the obligations of an agreement, effectively nullifying U.S. participation.\n4. Substantive defunding: The administration or Congress enacts a significant funding cut (at least 50%) to an agreement’s implementation, undermining U.S. participation.\n\nIf no formal attempt to withdraw from any of the seven treaties is made by January 1, 2026, the question will resolve as **No**.",
+      "fine_print": "The question will *not* resolve as **Yes** based solely on:\n\n* Rhetorical statements: If Trump or senior officials publicly criticize an agreement but do not take concrete steps to exit.\n* Exploratory reviews: If the administration commissions a study or internal review on withdrawing but does not take formal action.\n* Negotiated revisions: If the administration renegotiates an agreement but does not seek withdrawal.\n\n***\n\n* CTBT was never ratified by the US. Despite that, this question could still resolve based the US announcing a policy of non-compliance, as stated in criterion #3.\n* New START is set to expire in February 2026. A non-extension would not resolve this question as **Yes**. The US would have to either withdraw before February 2026 or extend the treaty and withdraw afterwards.\n\nIf there is ambiguity regarding whether an attempt meets the criteria, expert assessments from organizations such as the [Arms Control Association](https://www.armscontrol.org/), [Brookings Institution](https://www.brookings.edu/), or [Council on Foreign Relations](https://www.cfr.org/) will be considered by Metaculus to resolve this question.",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-10-07T05:48:35Z",
+      "actual_resolve_time": "2026-01-12T12:00:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39490/"
+      }
+    },
+    {
+      "post_id": 40283,
+      "question_id": 39835,
+      "title": "Will Hamas no longer have any hostages before 2026?",
+      "type": "binary",
+      "description": "On October 3, 2025, [Hamas said](https://www.bbc.com/news/articles/cdxq7zp7002o) that it would accept key elements of a White House plan, including releasing all Israeli hostages. According to the BBC\n\n> The Hamas statement did not specifically mention or accept Trump's 20-point plan but says it \"renews its agreement to hand over the administration of the Gaza Strip to a Palestinian body of independents (technocrats), based on Palestinian national consensus and Arab and Islamic support.\"\n> ‎\n> However the statement makes no mention of one of the key demands of the plan – that Hamas agree to its disarmament and to playing no further role in the governance of Gaza.\n\nPresident Trump told Israel to halt airstrikes pending a deal and threatened that \"all hell would break out\" if Hamas didn't accept the plan by October 5.\n\n`{\"format\":\"metac_reveal_and_close_in_period\",\"info\":{\"post_id\":40232,\"question_id\":39774}}`",
+      "resolution_criteria": "This question will resolve as **Yes** if Hamas has no alive hostages under their control at any point before January 1, 2026.",
+      "fine_print": "* This question will resolve independently of hostages being held by other organisations, such as the Palestinian Islamic Jihad.\n* In cases of ambiguity, this question will resolve according to statements by Hamas.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-10-09T15:30:00Z",
+      "actual_resolve_time": "2025-10-13T10:00:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/40283/"
+      }
+    },
+    {
+      "post_id": 39383,
+      "question_id": 38760,
+      "title": "Will major components of the Affordable Care Act be repealed or curtailed before 2026?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2024-12-20 21:15:00 and can be found [here](https://www.metaculus.com/questions/31130). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nThe[ <u>Patient Protection and Affordable Care Act</u>](https://en.wikipedia.org/wiki/Affordable_Care_Act) (PPACA), signed into law in the US in 2010 and commonly known as the ACA (or as Obamacare), has been subject to a[ <u>number of attempts by Republicans to repeal it</u>](https://en.wikipedia.org/wiki/Efforts_to_repeal_the_Affordable_Care_Act). While attempts at repeal were ultimately unsuccessful, the law has been subject to[ <u>a number of limitations and changes</u>](https://www.kff.org/health-policy-101-the-affordable-care-act/?entry=table-of-contents-how-has-the-aca-changed-since-it-was-first-passed) imposed by subsequent court rulings and laws.\n\nFollowing President-elect Donald Trump's election victory in November 2024 along with Republican control of Congress, there has been a great deal of[ <u>speculation</u>](https://www.kff.org/quick-take/what-would-trump-do-with-the-aca-its-hard-to-tell-for-sure/) regarding the future of the ACA. In his first term Trump was[ <u>critical of the ACA</u>](https://x.com/realDonaldTrump/status/918797009133465600) and[ <u>advocated</u>](https://trumpwhitehouse.archives.gov/briefings-statements/remarks-president-trump-signing-executive-order-promoting-healthcare-choice-competition/#:~:text=And%20we%E2%80%99re%20going%20to%20also%20pressure%20Congress%20very%20strongly%20to%20finish%20the%20repeal%20and%20the%20replace%20of%20Obamacare%20once%20and%20for%20all.%20We%20will%20have%20great%20healthcare%20in%20our%20country.) for it to be repealed and replaced. More recently on the campaign trail Trump has continued to[ <u>criticize the ACA</u>](https://x.com/TrumpDailyPosts/status/1728511466037485668), but has somewhat softened his stance by saying \"[<u>I'm not running to terminate the ACA. . .</u>](https://truthsocial.com/@realDonaldTrump/posts/112163485572377413)\" and instead focusing on reforms to improve the program and cut costs. House Speaker Mike Johnson has also[ <u>recently called for reforms to the ACA</u>](https://www.nbcnews.com/politics/congress/speaker-johnson-criticizes-obamacare-promises-massive-reform-trump-win-rcna177853).\n\nA number of Republican reforms to the ACA have been proposed in recent years following attempts at larger repeal, most of which have abandoned full repeal and instead aim to implement a range of reforms. Some of the published proposals are:\n\n* [<u>Proposals from chapter 14 about the Department of Health and Human Services (HHS)</u>](https://static.project2025.org/2025_MandateForLeadership_CHAPTER-14.pdf) from the[ <u>Project 2025 Policy Agenda</u>](https://www.project2025.org/policy/)\n* The Republican Study Committee's[ <u>FY 2025 Budget Proposal</u>](https://hern.house.gov/uploadedfiles/final_budget_including_letter_web_version.pdf#page=87)\n* A[ <u>2023 opinion piece</u>](https://www.foxnews.com/opinion/4-ways-repeal-obamacare) by former Louisiana Governor Bobby Jindal\n* A[ <u>paper from the Paragon Health Institute</u>](https://paragoninstitute.org/private-health/the-great-obamacare-enrollment-fraud/), a health policy research institute run by[ <u>Brian Blase</u>](https://paragoninstitute.org/profile/brian-blase/), former economic policy advisor during Trump's first term\n\nThe ACA is lengthy and complex, but the Republican proposals generally focus on a few key aspects, described below alongside other potential targets:\n\n* **Reducing Medicaid eligibility and expenses:** The ACA expanded federal Medicaid eligibility to households with income of 133% of the federal poverty line or less ([<u>see ACA Section 2001</u>](https://www.congress.gov/111/plaws/publ148/PLAW-111publ148.pdf), effectively this threshold is [<u>138%</u>](https://www.healthcare.gov/medicaid-chip/medicaid-expansion-and-you/) after accounting for other income adjustments in the law). However, Medicaid is administered through the states with some funding supplied by the federal government. The ACA was structured to tie federal funding to this expansion, but in [*<u>NFIB v. Sebelius</u>*](https://en.wikipedia.org/wiki/National_Federation_of_Independent_Business_v._Sebelius) the Supreme Court decided that the law amounted to an invalid coercion of states and therefore the Medicaid expansion must be voluntary. Republican proposals to change this tend to view the federal Medicaid spending as excessive and wasteful, and argue for limitations on eligibility, such as via work requirements, more flexibility for states to determine eligibility, and changes to federal funding that reduce federal spending.\n* **Limiting premium tax credits:** The ACA implemented tax credits for households with earnings from 100% to 400% of the federal poverty line to offset costs for qualified healthcare plans. Republican plans have proposed narrowing eligibility, reducing subsidy amounts, or allowing subsidies to be redirected to health savings accounts (HSAs) or insurance plans that do not comply with ACA requirements.\n* **Fully eliminating the individual mandate:** The ACA mandated that individuals must have health insurance, and imposed a penalty for those without insurance. The [<u>2017 Tax Cuts and Jobs Act set that penalty to zero</u>](https://www.healthinsurance.org/glossary/individual-mandate/), effectively reducing the legal force behind the mandate. However, the mandate itself is still law, despite there being no penalty associated with it.\n* **Limiting the employer mandate:** The ACA [<u>mandated that employers of certain sizes must offer health insurance coverage to their employees</u>](https://www.cigna.com/employers/insights/informed-on-reform/employer-mandate), and imposed penalties for non-compliance. This mandate is still in effect.\n* **Eliminating restrictions on subsidies and plan eligibility:** The premium tax credits and other subsidies under the ACA are generally only eligible for healthcare plans that satisfy certain criteria set forth in the ACA. Republicans [<u>have proposed</u>](https://www.npr.org/sections/shots-health-news/2024/11/21/nx-s1-5198483/trump-republicans-obamacare-aca-medicaid) allowing the use of subsidies for plans that do not comply with the ACA, or for contributions to Health Savings Accounts.\n* **Eliminating restrictions on medical underwriting:** [<u>Medical underwriting</u>](https://www.investopedia.com/terms/m/medical-underwriting.asp) is the practice of insurers determining health plan eligibility and pricing based on the health characteristics of individuals or groups. The ACA prohibited medical underwriting in most cases for health insurance with the exception of [<u>consideration</u>](https://www.healthcare.gov/how-plans-set-your-premiums/) of age, location, tobacco use, family status, and plan category. It also prohibited denial of coverage for pre-existing conditions. The [<u>Republican Study Committee</u>](https://hern.house.gov/uploadedfiles/final_budget_including_letter_web_version.pdf#page=87) proposal would expand the ability of insurers to use medical underwriting, arguing that the current limitations cause younger, healthier individuals to face larger health insurance expenses.\n\nWhile Republicans do not have a filibuster-proof majority in the Senate, they could pursue significant changes through budget reconciliation, a legislative process requiring only a simple majority in the Senate. Reconciliation was previously used in 2017 to attempt to repeal parts of the ACA, including Medicaid expansion and premium subsidies, but the effort ultimately [<u>failed by a narrow margin</u>](https://www.npr.org/2017/07/27/539907467/senate-careens-toward-high-drama-midnight-health-care-vote). Generally only [<u>changes to law that impact certain classifications of federal spending</u>](https://www.cbpp.org/research/introduction-to-budget-reconciliation) can be accomplished with reconciliation, and [<u>typically</u>](https://www.pgpf.org/article/what-is-budget-reconciliation/) only once per year.\n\n***\n\nThis question belongs to Vox's Future Perfect Community page and 2025 forecasting tournament. [Learn more and compete for the \\$2,500 prize pool](https://www.metaculus.com/c/future-perfect/).\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":31130,\"question_id\":30857}}`",
+      "resolution_criteria": "This question will resolve as **Yes** if, before January 1, 2026, the United States has enacted one or more bills that changes at least three of the six following components of the Affordable Care Act (ACA) to either repeal or curtail them (see the fine print for fuller details):\n\n* Eliminates or reduces the ACA's Medicaid eligibility or federal funding\n* Eliminates or reduces the premium tax credit eligibility or amount\n* Eliminates or curtails the individual mandate (by law the individual mandate still exists in the ACA, but has no penalty)\n* Eliminates or curtails the mandate for certain employers to provide health coverage for employees. Reducing the penalties will also be considered to be relaxing the mandate.\n* Makes it so that ACA subsidies are no longer limited to plans that satisfy the requirements specified in the ACA, including allowing ACA subsidies to be contributed to health savings accounts or similar account\n* Eliminates or curtails medical underwriting restrictions",
+      "fine_print": "Below find an expanded description of the above six criteria with the criteria used to determine if each has occurred:\n\n* One or more of the following changes to Medicaid is implemented\n  * Rescinding or reducing federal Medicaid eligibility below 133% of the federal poverty line (effectively 138% of the federal poverty line)\n  * Rescinding or reducing the federal medical assistance percentage (FMAP) for newly eligible recipients for states which have expanded Medicaid\n  * Reducing or capping the overall amount of Medicaid funding provided under the ACA\n  * Imposing new federal requirements on Medicaid eligibility, such as work requirements, that have the effect of reducing the number of people who are currently eligible for Medicaid\n* One or more of the following changes is made to premium tax credits\n  * Reducing taxpayer eligibility for the credits (the ACA specified that taxpayers with household incomes ranging between 100% and 400% of the federal poverty line were eligible, so a reduction would be narrowing that range by either increasing the minimum eligibility above 100% or lowering the cap below 400%)\n  * Reducing or eliminating the premium assistance amount specified in the ACA\n  * Imposing additional requirements on premium tax credits that have the effect of reducing the number of people who are currently eligible for premium tax credits\n* The individual mandate is eliminated (by law the individual mandate still exists in the ACA, but has no penalty)\n* Eliminating or relaxing the mandate for certain employers to provide health coverage for employees. Reducing the penalties will also be considered to be relaxing the mandate.\n* Making it so that ACA subsidies are no longer limited to plans that satisfy the requirements specified in the ACA, including allowing ACA subsidies to be contributed to health savings accounts or similar account\n* One or more of the following changes is made to the ACA's medical underwriting restrictions:\n  * Eliminating or relaxing the ACA's restriction on excluding individuals with pre-existing conditions\n  * Expanding the ability of health insurance issuers to price discriminate or set eligibility requirements based on certain characteristics\n\nThe above criteria need not be met in a single bill. The question will still resolve as **Yes** if multiple bills are enacted that have the combined effect of satisfying the above criteria.\n\nThe ACA is lengthy and complex, and Metaculus will use its judgment to assess legislation that has been passed while also relying on characterizations published in credible sources that Metaculus assesses to be knowledgeable and demonstrate sufficient expertise.\n\nThe expiration of [enhanced subsidies](https://www.kff.org/interactive/how-much-more-would-people-pay-in-premiums-if-the-acas-enhanced-subsidies-expired/) passed in other legislation is immaterial; this question only resolves as **Yes** if the above criteria are met with respect to the text of the ACA.",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-11-06T21:08:25Z",
+      "actual_resolve_time": "2026-01-05T22:00:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39383/"
+      }
+    },
+    {
+      "post_id": 39998,
+      "question_id": 39539,
+      "title": "Will California's Proposition 50 (allowing redistricting of House seats) pass in the 2025 election?",
+      "type": "binary",
+      "description": "In July 2025, Texas [gerrymandered](https://www.politico.com/news/2025/08/23/texas-passes-congressional-map-gerrymander-00519116) its electoral map to gain Republicans five seats in the House of Representatives in the 2026 midterm elections (though as Nate Silver [points out](https://www.natesilver.net/p/how-many-seats-will-texas-redistricting), there are scenarios in which the gains may be less). This has set off a [redistricting tit for tat](https://www.natesilver.net/p/democrats-can-win-the-redistricting), with California governor Gavin Newsom planning its own redistricting to offset it.&#x20;\n\nThe new electoral map, which was passed by California's legislature in August 2025, is [required](https://www.cbsnews.com/news/california-redistricting-gavin-newsom-vote/) by California law to be approved by voters. There has been opposition, such as former governor Arnold Schwarzenegger [campaiging](https://www.politico.com/newsletters/california-playbook/2025/09/16/why-the-governator-could-derail-prop-50-00565187) against the measure. A recent poll [found](https://norcalpublicmedia.org/2025082698963/news-feed/uc-berkeley-poll-finds-more-california-voters-support-prop-50-than-oppose) California likely voters supporting the measure 48-32.\n\n`{\"format\":\"metac_reveal_and_close_in_period\",\"info\":{\"post_id\":39989,\"question_id\":39530}}`",
+      "resolution_criteria": "This question resolves as **Yes** if California Proposition 50 passes in the state's 2025 election, according to [credible sources](https://www.metaculus.com/faq/#definitions).",
+      "fine_print": "Please note that this question is looking only at whether the ballot measure passes. Therefore such factors as its effectiveness date, funding, repeal, litigation, enforcement, or other such issues will not be considered when resolving this question.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-09-21T19:48:19Z",
+      "actual_resolve_time": "2025-11-05T14:55:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39998/"
+      }
+    },
+    {
+      "post_id": 40761,
+      "question_id": 40415,
+      "title": "Will another Canadian MP defect or resign before 2026?",
+      "type": "binary",
+      "description": "As the [2025 Canadian Budget](https://en.wikipedia.org/wiki/2025_Canadian_federal_budget) is proposed, the incumbent Liberal government faces a challenge in passing its agenda. After the [2025 Federal Election](https://en.wikipedia.org/wiki/2025_Canadian_federal_election), the Liberal Party fell just 3 seats short of a majority, forming a minority government.&#x20;\n\nOn November 5, 2025, Canadian MP Chris d'Entremont [left the Conservative Party](https://www.cbc.ca/news/canada/nova-scotia/chris-d-entremont-reaction-in-nova-scotia-9.6968088) and joined the Liberal Party, crossing the floor to become the 170th Liberal MP. [Citing disagreements](https://www.cbc.ca/news/politics/chris-dentremont-liberals-poilievre-9.6967559) with Pierre Poilievre's leadership, he stated that \"*In the last number of months, I wasn't feeling I was aligned with the ideals of what the leader of the Opposition had been talking about.*\"\n\nOn November 6, Conservative Matt Jeneroux [announced his resignation](https://globalnews.ca/news/11515475/matt-jeneroux-conservative-mp-resigns/) as an MP. Offering little explanation, [media has reported](https://www.ctvnews.ca/politics/article/conservative-mp-resigns-from-parliament-two-days-after-fellow-mp-crosses-the-floor/) that he was in talks with Mark Carney's office and that Conservative Party officials told him that there would be \"consequences\" if he crossed the floor.&#x20;\n\nIf just two more Conservative MPs defect it would provide the Liberal Government with the required 172 seats for a majority.\n\n`{\"format\":\"metac_reveal_and_close_in_period\",\"info\":{\"post_id\":40727,\"question_id\":40342}}`",
+      "resolution_criteria": "This question will resolve as **Yes** if, after November 17, 2025 and before January 1, 2026, a member of the Canadian House of Commons resigns, changes party, or becomes an independent.",
+      "fine_print": "If an MP dies or otherwise leaves office without resigning, that will have no impact on this question.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-11-20T15:30:00Z",
+      "actual_resolve_time": "2025-12-11T12:00:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/40761/"
+      }
+    },
+    {
+      "post_id": 39461,
+      "question_id": 38838,
+      "title": "Will the White House revoke the media credentials of reporters from two media outlets before 2026?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2025-01-31 20:50:00 and can be found [here](https://www.metaculus.com/questions/34516). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nPresident Trump has long enjoyed a contentious relationship with mainstream media, which he terms \"fake news.\" His [<u>first administration revoked the White House press passes for dozens of journalists</u>](https://www.cjr.org/the_media_today/white-house-press-passes.php). Further, near the end of the 2024 campaign, [<u>many journalists were denied access to an election watch event</u>](https://www.cnn.com/2024/11/05/media/trump-revokes-journalists-election-night-credentials/index.html).&#x20;\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":34516,\"question_id\":34031}}`",
+      "resolution_criteria": "This question will resolve as Yes if [<u>credible sources</u>](https://www.metaculus.com/faq/#definitions) report the White House revokes the media credentials of two or more reporters from at least two previously credentialed media outlets before January 1, 2026.",
+      "fine_print": "\\- This question will resolve to Yes only if the White House formally revokes the media credentials of two or more reporters from at least two media outlets that were credentialed by the White House at any point prior to the revocation.\n\n\\- The revocation must apply to reporters from the specific outlets and be publicly announced by the White House or reported by credible news sources. The question still resolves to Yes even if the credentials are later restored.\n\n\\- There is no limitation on when the reporters were initially credentialed; they must only be credentialed at the time of the revocation.\n\n\\- Metaculus will resolve this question according to [<u>credible sources</u>](https://www.metaculus.com/faq/#definitions) published before January 1, 2026, Eastern Time.",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-11-23T22:42:33Z",
+      "actual_resolve_time": "2026-01-19T18:24:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39461/"
+      }
+    },
+    {
+      "post_id": 39435,
+      "question_id": 38812,
+      "title": "Will Nvidia outperform the S&P 500 in 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2025-01-10 20:42:00 and can be found [here](https://www.metaculus.com/questions/31307). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nThe S\\&P 500 is a market cap weighted index of 500 of the largest companies in the United State stock market. These 500 companies [cover](https://www.spglobal.com/spdji/en/indices/equity/sp-500/#overview) approximately 80% of the total stock market capitalization in the United States.\n\nIt is notoriously difficult for single stocks to beat the S\\&P 500 index. In 2024, [SPY](https://www.investopedia.com/articles/investing/122215/spy-spdr-sp-500-trust-etf.asp), an Exchange Traded Fund designed to track the performance of the S\\&P 500, returned 24.9%. Of the 503 stocks in the fund, 346 did worse than 24.9%, meaning 69% of stocks in the S\\&P underperformed the index. (See list at [Finviz](https://finviz.com/screener.ashx?v=111\\&f=idx_sp500).) Studies have shown that this is not unusual, and that over the long term the median individual stock underperforms a passive strategy of buying and holding an index fund. (See for example [here](https://exencialwealth.com/resources/looking-under-the-hood-of-indexes) and page 6 of [this pdf.](https://www.chase.com/content/dam/privatebanking/en/mobile/documents/eotm/eotm_2014_09_02_agonyescstasy.pdf))\n\nAt the time this question was written, Nvidia, manufacturer of hardware and software for [accelerated computing](https://blogs.nvidia.com/blog/what-is-accelerated-computing/) and [artificial intelligence](https://www.nytimes.com/2023/08/21/technology/nvidia-ai-chips-gpu.html), has massively outperformed the S\\&P 500 since 2015. Since that year, its average annualized return has been 75.6%, as compared with 13.0% for SPY:&#x20;\n\n![](https://cdn.metaculus.com/user_uploaded/Screenshot_2025-01-03_at_8.48.47%C3%A2PM.png)\n\n(Source: [PortfolioVisualizer](https://www.portfoliovisualizer.com/backtest-portfolio?s=y\\&sl=1N1gQs4wZpgRHUUOWsN55o))\n\nFor more information, please see:\n\n* VisualCapitalist: [The Pyramid of S\\&P 500 Returns (1874-2024)](https://www.visualcapitalist.com/sp-500-annual-returns-since-1874/)\n* Yahoo Finance: [Prediction: This Will Be the First Artificial Intelligence (AI) Stock To Reach a \\$4 Trillion Valuation in 2025](https://finance.yahoo.com/news/prediction-first-artificial-intelligence-ai-223800235.html)\n* Business Insider: [Nvidia gained \\$2 trillion in its stellar 2024 rally. Here's what Wall Street sees for the chip titan this year.](https://markets.businessinsider.com/news/stocks/nvidia-stock-forecast-nvda-price-prediciton-blackwell-gpu-ai-chips-2025-1)\n* Andy Lin's Long-term Stock Investment Blog: [Nvidia's new business set to grow its share price](https://www.granitefirm.com/blog/us/2024/09/04/nvidias-new-business/)\n* [NVIDIA's SWOT analysis: ai giant's stock poised for growth amid challenges](https://www.investing.com/news/swot-analysis/nvidias-swot-analysis-ai-giants-stock-poised-for-growth-amid-challenges-93CH-3794759)\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":31307,\"question_id\":30945}}`",
+      "resolution_criteria": "This question resolves as **Yes** if Nvidia's stock outperforms the S\\&P 500 in 2025. If its return is less than or equal to that of the S\\&P 500, this question resolves as **No**.\n\nThe resolution sources are: \n\n* The Yahoo Finance history page for [NVIDIA Corporation (NVDA)](https://finance.yahoo.com/quote/NVDA/history/).[](https://finance.yahoo.com/quote/NVDA/history/)\n* The Yahoo Finance history for the [SPDR S\\&P 500 ETF Trust (SPY)](https://finance.yahoo.com/quote/SPY/history/).",
+      "fine_print": "Each stock's return for 2025 will be calculated by taking its adjusted close at Yahoo Finance for the final trading day of 2025, dividing it by the adjusted close price for December 31, 2024, subtracting 1 and then multiplying by 100%. For example:\n\n* In the final trading day of 2024, Nvidia's adj. close price was $134.29. Its adj. close price on the final trading day of 2023 was $49.51. Its return for the year was 171.2%\n* In the final trading day of 2024, SPY's adj. close price was $586.08. Its adj. close price on the final trading day of 2023 was $469.29. Its return for the year was 24.9%",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-10-09T09:17:27Z",
+      "actual_resolve_time": "2026-01-06T20:04:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39435/"
+      }
+    },
+    {
+      "post_id": 39484,
+      "question_id": 38861,
+      "title": "Will inflation-adjusted gas prices rise in the US in 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2025-01-10 20:42:00 and can be found [here](https://www.metaculus.com/questions/31303). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nGas prices are a highly visible economic indicator in the US, as [almost 90%](https://www.consumeraffairs.com/automotive/number-of-drivers-in-us.html) of American adults drive. Gas prices have an outsized [effect on consumer sentiment](https://www.convenience.org/Media/Daily/2022/Oct/27/1-Gas-Prices-Impact-Consumer-Sentiment_Consumers), and consequently play a significant role [when it comes to elections](https://www.spglobal.com/commodityinsights/en/market-insights/latest-news/oil/062624-us-elections-gasoline-price-fluctuations-could-play-role-in-2024-presidential-election). President-elect Donald Trump raised the issue of gas prices repeatedly during his campaign and [promised to bring gas prices down](https://www.yahoo.com/news/trump-says-elected-president-ll-202724792.html).\n\nThe US Energy Information Administration (EIA) regularly publishes [national retail gasoline prices](https://www.eia.gov/dnav/pet/hist/LeafHandler.ashx?n=pet\\&s=emm_epmr_pte_nus_dpg\\&f=m) based on a volume-weighted [survey sample](https://www.eia.gov/petroleum/gasdiesel/gas_proc-methods.php) of retail gasoline outlets.\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":31303,\"question_id\":30944}}`",
+      "resolution_criteria": "This question will resolve as **Yes** if inflation-adjusted national average gas prices for December 2025 (in dollars per gallon) are higher than national average gas prices for December 2024. Resolution will be determined according to the monthly data provided by the [Energy Information Agency](https://www.eia.gov/dnav/pet/hist/LeafHandler.ashx?n=pet\\&s=emm_epmr_pte_nus_dpg\\&f=m) (EIA), adjusted for inflation using [BLS' CPI Inflation Calculator](https://www.bls.gov/data/inflation_calculator.htm).",
+      "fine_print": "* The question will resolve when both the EIA gas price and CPI inflation index for December 2025 are first publicly available and accessed by Metaculus.\n* If data from the US EIA or the CPI from the Bureau of Labor Statistics (BLS) is not available, Metaculus may select a similar source of data or resolve as **Ambiguous** at their discretion.\n* EIA's series ID for gas prices is `PET.EMM_EPMR_PTE_NUS_DPG.M`\n* BLS' series ID for the consumer price index is `CPIAUCSL`",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-09-30T16:10:47Z",
+      "actual_resolve_time": "2026-01-14T17:29:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39484/"
+      }
+    },
+    {
+      "post_id": 39566,
+      "question_id": 38943,
+      "title": "Will Pedro Sánchez still be president of Spain at the end of 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2025-02-27 12:56:00 and can be found [here](https://www.metaculus.com/questions/35261). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nPedro Sánchez is the leader of the Spanish Socialist Workers' Party (PSOE) and has been serving as Prime Minister of Spain since June 2018. Sánchez has run a [ <u>coalition government since 2020</u> ](https://en.wikipedia.org/wiki/Second_Pedro_Sánchez_government), with a [ <u>different configuration following the 2023 elections</u> ](https://en.wikipedia.org/wiki/Third_Pedro_Sánchez_government). Currently, there are no general elections scheduled before the end of 2025. For Sánchez to be removed from office, he would have to resign or face a [ <u>motion of no confidence</u> ](https://en.wikipedia.org/wiki/Motion_of_censure_\\(Spain\\)), a demanding process in the Spanish political system as it requires an alternative majority.\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":35261,\"question_id\":34745}}`",
+      "resolution_criteria": "The question will be answered as **Yes** if Pedro Sánchez holds the office of Prime Minister of Spain at the end of the day on December 31, 2025. It will be answered as **No** if he does not hold that office at that time. Confirmation will be based on official sources.",
+      "fine_print": "* The question does not consider whether Sánchez has announced his future resignation, only whether he officially takes up office at the end of the day on December 31, 2025.\n\n • If Sánchez does not hold office, but is the acting President at the end of the day on December 31, 2025, this question will still be resolved as **No**.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-09-16T08:43:08Z",
+      "actual_resolve_time": "2026-01-13T12:50:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39566/"
+      }
+    },
+    {
+      "post_id": 39622,
+      "question_id": 38999,
+      "title": "Will Pierre Poilievre become Prime Minister of Canada before 2026?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2022-10-04 04:00:00 and can be found [here](https://www.metaculus.com/questions/12539). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\n[The 45th Canadian federal election](https://en.wikipedia.org/wiki/45th_Canadian_federal_election) will take place on or before 20 October 2025 to elect members of the House of Commons to the 45th Canadian Parliament. \n\nSince the incumbent government is a minority government, the election may occur before the scheduled date if the governor general of Canada dissolves Parliament on the recommendation of the prime minister of Canada for a snap election, for example after the House of Commons passes a motion of no confidence in the government.\n\n\n[Pierre Marcel Poilievre](https://en.wikipedia.org/wiki/Pierre_Poilievre) PC MP, born June 3, 1979, is a Canadian politician who has served as the leader of the Conservative Party of Canada and the leader of the Opposition since September 10, 2022. He has been described as a libertarian and populist, and calls himself a [\"true conservative.\"](https://www.nationalobserver.com/2022/05/06/opinion/poilievres-appeal-simple-unapologetically-conservative)\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":12539,\"question_id\":12539}}`",
+      "resolution_criteria": "This question resolves positively if at any point before 1 January 2026, Ottawa time, Pierre Poilievre holds the office of Prime Minister of Canada. It resolves negatively if this does not happen.\n\nIn the event that a federal election is due to take place before this question closes, the question shall be closed 24 hours before polls open.",
+      "fine_print": "Holding the position of Prime Minister–Designate does not count.\n\nFurther, being the Acting Prime Minister does not count: Pierre Poilievre must formally hold the office of Prime Minister of Canada for a positive resolution.",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-09-19T19:28:52Z",
+      "actual_resolve_time": "2026-01-12T11:07:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39622/"
+      }
+    },
+    {
+      "post_id": 39376,
+      "question_id": 38753,
+      "title": "Will Zohran Mamdani be elected Mayor of New York City in 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2025-06-20 21:30:00 and can be found [here](https://www.metaculus.com/questions/38665). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nNew York City holds its mayoral race on November 4, 2025. The race is expected to be between:\n\n* Zohran Mamdani, if he wins the Democratic nomination or possibly as the candidate of the [Working Families Party](https://www.cityandstateny.com/politics/2025/04/wfp-will-not-give-general-election-ballot-line-andrew-cuomo/404264/) if he doesn't.\n* Andrew Cuomo, if he wins the Democratic nomination or as an [independent](https://nypost.com/2025/05/06/us-news/andrew-cuomo-will-run-on-independent-fight-and-deliver-ballot-line-if-he-doesnt-win-nyc-dem-primary/) if he doesn't.&#x20;\n* Eric Adams, current mayor of NY, elected as a Democrat for his first term but now [running as an independent](https://www.nytimes.com/2025/04/03/nyregion/eric-adams-independent-mayor.html).&#x20;\n* Curtis Sliwa, founder of the [Guardian Angels](https://www.guardianangels.org/) and the Republican candidate.\n\nNYC mayoral polling averages can be found at the [RaceToTheWH.com website](https://www.racetothewh.com/nycmayorpolling).\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":38665,\"question_id\":37886}}`",
+      "resolution_criteria": "This question resolves as **Yes** if Zohran Mamdani is elected mayor of New York City in the [2025 New York City mayoral election](https://en.wikipedia.org/wiki/2025_New_York_City_mayoral_election).&#x20;",
+      "fine_print": "This question may resolve as No before the general election if Mamdani loses the Democratic primary and announces he will not run in the general election.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-09-19T13:29:10Z",
+      "actual_resolve_time": "2025-11-05T12:42:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39376/"
+      }
+    },
+    {
+      "post_id": 40210,
+      "question_id": 39747,
+      "title": "Will the United States bailout Argentina before 2026?",
+      "type": "binary",
+      "description": "Since the mid-20th century, [Argentina's economy](https://en.wikipedia.org/wiki/Economic_history_of_Argentina) has struggled with recurring crises, high inflation, fiscal imbalances, and currency instability. Repeatedly receiving IMF loans, the crisis culminated at the [turn of the millennium](https://en.wikipedia.org/wiki/1998%E2%80%932002_Argentine_great_depression) and resulted in a majority of the population living below the poverty line. Following the crisis, Argentina underwent [debt restructuring](https://en.wikipedia.org/wiki/Argentine_debt_restructuring) and economic reforms, however economic problems persisted and by 2023 inflation had once again [surpassed 100%](https://www.bbc.com/news/world-latin-america-64960385).\n\nIn the [2023 presidential election](https://en.wikipedia.org/wiki/2023_Argentine_general_election), [Javier Milei](https://en.wikipedia.org/wiki/Javier_Milei) was elected President of Argentina. Milei campaign on a platform of [radical economic reforms](https://en.wikipedia.org/wiki/Javier_Milei_2023_presidential_campaign) and free market policies, including dollarizing the economy, abolishing the Central Bank, and privatizing state-owned enterprises. Following the election, Milei faced political pressure and challenges and moderated his proposals, however significant economic reforms were still implemented.\n\nDuring Milei's tenure, Argentina's economy has continued to face significant challenges. Although poverty has dropped from its peak, many have lost access to basic needs programs, and although inflation declined following an initial spike, it remains far above normal levels.&#x20;\n\nPrior to Milei's presidency, Argentina had implemented significant currency controls, resulting in a split between the formal and informal rate of the Argentine Peso. Milei initially attempted to unify the exchange rate with a “crawling peg” system before eventually allowing the peso to [float freely](https://www.lemonde.fr/en/international/article/2025/04/12/argentina-to-lift-strict-currency-controls-on-monday_6740130_4.html). Following this, the central bank [intervened to defend the currency](https://www.bloomberg.com/news/articles/2025-09-19/argentina-milei-defends-peso-to-last-dollar-as-devaluation-jitters-mount), including purchasing U.S. dollars and using reserves to stabilize the peso amid sharp depreciation.\n\nIn September 2025, the United States announced plans for a [\\$20 billion swap line](https://www.reuters.com/world/americas/us-ready-support-argentina-needed-bessent-says-2025-09-24/) with Argentina's central bank. This would allow Argentina to exchange pesos for U.S dollars with the U.S central bank, giving it the ability to defend the peso’s exchange rate and receive short term funding. Following this, Trump [downplayed the plans](https://www.france24.com/en/live-news/20250923-we-re-gonna-help-trump-to-the-rescue-of-struggling-argentina) saying \"I don't think they need a bailout\" but touted unspecified \"help\" to Argentina.\n\n`{\"format\":\"metac_reveal_and_close_in_period\",\"info\":{\"post_id\":40031,\"question_id\":39572}}`",
+      "resolution_criteria": "This question will resolve as Yes if the United States Government conducts any of the following actions before 2026:\n\n* Transfers or provides a loan of US dollars to the Government of Argentina.\n* Opens a dollar swap line with the BCRA and the BCRA draws from it.\n* Purchases any Argentine sovereign bonds.",
+      "fine_print": "No additional fine print was provided by Metaculus for this question.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-10-01T15:30:00Z",
+      "actual_resolve_time": "2025-11-11T13:00:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/40210/",
+        "context_warnings": [
+          "fine_print_missing_replaced_with_placeholder"
+        ]
+      }
+    },
+    {
+      "post_id": 40947,
+      "question_id": 40640,
+      "title": "Will Germany enact the Aktivrente before 2026?",
+      "type": "binary",
+      "description": "During August 2025, the governing coalition of the CDU/CSU and the SPD introduced a wide-spanning [pension reform package](https://www.lemonde.fr/en/international/article/2025/11/27/germany-s-pension-reform-becomes-a-generational-conflict_6747872_4.html), including a stabilisation of the pension replacement rate, an expansion of pension credits to parents, the abolishment of rules preventing rehire of retirees under fixed-term contracts, and most controversially the [Aktivrente](https://www.theguardian.com/world/2025/oct/15/german-retirees-who-continue-working-set-to-earn-1750-a-month-tax-free) (active pension). This is a proposed change to the German tax system in which work income earned by pensioners under €2,000 a month is considered tax-free.\n\nAfter being approved by the [Federal Cabinet](https://www.bundesregierung.de/breg-en/issues/bill-active-pension-2389668), the bill must now be passed by the Bundestag and be approved by the Bundesrat. The current draft sets the law to enter into effect on January 1, 2026, with the government aiming to pass the bill during 2025.\n\n[Criticised by lawmakers](https://www.thelocal.de/20251128/merz-digs-in-on-pensions-bill-despite-party-rebellion) from the CDU's Youth Wing, the bill is at risk of failing due to the only 12 seat majority of the governing coalition. Friedrich Merz stated that \"[I expect approval](https://www.reuters.com/world/merz-hopes-avoid-german-coalition-crisis-with-vow-overhaul-pensions-2025-11-28/)\", however the bill will still have to gain the support of the Youth Wing's 18 members or from another party such as [the Greens](https://themunicheye.com/greens-pension-reform-commission-germany-29958).\n\n`{\"format\":\"metac_reveal_and_close_in_period\",\"info\":{\"post_id\":40924,\"question_id\":40612}}`",
+      "resolution_criteria": "This question will resolve as **Yes** if Germany enacts an extra tax-free allowance on employment income for people above statutory retirement age before January 3, 2026.",
+      "fine_print": "This question will not wait for the law to enter into legal force, if the bill is officially enacted this question will immediately resolve as **Yes**.\n\nThis question will still resolve **Yes** if certain categories of income (such as self-employment) are excluded, as in the existing proposal.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-12-04T15:30:00Z",
+      "actual_resolve_time": "2025-12-19T11:00:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/40947/"
+      }
+    },
+    {
+      "post_id": 39518,
+      "question_id": 38895,
+      "title": "Will Benjamin Netanyahu remain Prime Minister of Israel throughout 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2024-12-20 21:01:00 and can be found [here](https://www.metaculus.com/questions/31118). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\n[Benjamin Netanyahu](https://en.wikipedia.org/wiki/Benjamin_Netanyahu) is the Prime Minister of Israel as of December 2024, since the end of 2022, having previously held the office from 1996 to 1999 and again from 2009 to 2021. Netanyahu is the longest-tenured prime minister in the country's history, having served for a total of over 17 years.\n\nThroughout 2024, Netanyahu's leadership has faced significant challenges, including [ongoing corruption trials](https://www.bbc.com/news/articles/c4g30271wxwo) and international legal actions. In November 2024, the International Criminal Court [issued an arrest warrant](https://www.icc-cpi.int/news/situation-state-palestine-icc-pre-trial-chamber-i-rejects-state-israels-challenges) for Netanyahu, alleging war crimes committed during the Israel–Hamas conflict. Despite these legal issues, Netanyahu has maintained his position as Prime Minister. Israeli law [permits a prime minister](https://www.reuters.com/world/middle-east/netanyahu-corruption-trial-divides-israeli-public-2024-12-09/) to remain in office unless convicted and after all appeals are exhausted.\n\nPublic opinion has been divided regarding Netanyahu's tenure. In July 2024, [a poll showed](https://www.timesofisrael.com/poll-finds-72-of-israelis-think-netanyahu-should-quit-over-oct-7-failures/) that 72% of Israelis think Netanyahu should quit over the security failures that led to the Hamas attacks in October 2023.\n\n***\n\nThis question belongs to Vox's Future Perfect Community page and 2025 forecasting tournament. [Learn more and compete for the \\$2,500 prize pool](https://www.metaculus.com/c/future-perfect/).\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":31118,\"question_id\":30848}}`",
+      "resolution_criteria": "This question will resolve as **Yes** if Benjamin Netanyahu has remained the Prime Minister of Israel for the entire duration from January 1, 2025 to December 31, 2025, inclusive. If Netanyahu ceases to be the Prime Minister at any point during 2025, this question will resolve as **No**.",
+      "fine_print": "As long as Netanyahu retains the official title of Prime Minister, this question will not resolve as **No**, even if he is suspended, has temporarily stepped back due to health or other reasons, or an acting Prime Minister has been appointed to fulfill his duties.\n\nFor purposes of this question, \"temporarily\" is defined as Netanyahu resuming his duties within 30 days. Longer than 30 days will resolve as **No,** even if he officially retains the official title of Prime Minister. This 30 day period must complete before December 31, 2025, otherwise the question will resolve as **Yes** if he holds the office of Prime Minister of the State of Israel.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-10-16T09:50:42Z",
+      "actual_resolve_time": "2026-01-06T20:04:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39518/"
+      }
+    },
+    {
+      "post_id": 39608,
+      "question_id": 38985,
+      "title": "Will bitcoin reach $200k in 2025?",
+      "type": "binary",
+      "description": "This question is synced with an identical question on Metaculus. The original question opened on 2024-12-20 21:00:00 and can be found [here](https://www.metaculus.com/questions/31099). This question will resolve to the same value as the synced question. The original question's background info at this time is below. \n\nBitcoin's price has fluctuated wildly over the years. It first surpassed $50k in 2021 but then spent most of 2022 and 2023 below $30k. In January 2024, the US [approved](https://www.bbc.com/news/technology-67916142) bitcoin ETFs for the first time with bitcoin's price rising to $60k. Then, following Donald Trump's win bitcoin first surpassed $100k.\n\nDespite Trump [claiming in 2019](https://x.com/realDonaldTrump/status/1149472282584072192?lang=en) that he was not a fan of bitcoin, in [August 2024](https://www.reuters.com/technology/cryptoverse-trumps-bitcoin-stockpile-plan-stirs-debate-2024-08-06/) he stated that he planned to create a strategic bitcoin reserve, something that he reiterated in [December 2024](https://www.reuters.com/markets/currencies/bitcoin-powers-above-105000-first-time-2024-12-15/) and which could significantly impact bitcoin's price. He further [announced](https://apnews.com/article/bitcoin-trump-election-crypto-regulation-c45a747d9c32591bc4e5dcd6e5cc0c22?utm_source=chatgpt.com) that he plans to nominate crypto advocate Paul Atkins as the SEC's chair.\n\n***\n\nThis question belongs to Vox's Future Perfect Community page and 2025 forecasting tournament. [Learn more and compete for the $2,500 prize pool](https://www.metaculus.com/c/future-perfect/).\n\n`{\"format\":\"metac_closes_in_period\",\"info\":{\"post_id\":31099,\"question_id\":30831}}`",
+      "resolution_criteria": "This question will resolve as **Yes** if bitcoin has a \"High\" price of 200,000 USD or more on any single day of 2025, according to the historical data by [Yahoo Finance](https://finance.yahoo.com/quote/BTC-USD/history/).",
+      "fine_print": "If Yahoo Finance ceases to report this data, an alternative [credible source](https://www.metaculus.com/faq/#definitions) will be chosen by Metaculus.",
+      "label": 0,
+      "resolution_raw": "no",
+      "status": "resolved",
+      "open_time": "2025-10-13T07:17:50Z",
+      "actual_resolve_time": "2026-01-07T23:59:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/39608/"
+      }
+    },
+    {
+      "post_id": 40285,
+      "question_id": 39837,
+      "title": "Will Ukraine extend martial law beyond November 5, 2025?",
+      "type": "binary",
+      "description": "President Volodymyr Zelenskyy declared [martial law](https://en.wikipedia.org/wiki/Martial_law_in_Ukraine#2022_martial_law) in Ukraine on February 24, 2022, in response to the Russian invasion of Ukraine that began earlier that day. As the [ensuing war](https://en.wikipedia.org/wiki/Russo-Ukrainian_war_\\(2022%E2%80%93present\\)) has dragged on, the government has extended martial law [16 times](https://newsukraine.rbc.ua/news/ukraine-prolongs-martial-law-mobilization-1752577500.html). (At first, each declaration of martial law was good for thirty days, but since May 2022, martial law has been extended for 90-day periods.)\n\nOne consequence of this lengthy period of martial law is that national elections, which would have occurred [in 2023](https://en.wikipedia.org/wiki/Next_Ukrainian_parliamentary_election), have been postponed indefinitely. Nevertheless, [some observers](https://www.saisjournal.eu/article/98-George-Kent-War-and-Democracy.cfm) argue that the rule of law in Ukraine remains strong.\n\nThe current period of martial law is scheduled to expire on [November 5, 2025](https://newsukraine.rbc.ua/news/zelenskyy-signs-extension-of-martial-law-1753442234.html), unless the government again renews it.\n\n`{\"format\":\"metac_reveal_and_close_in_period\",\"info\":{\"post_id\":40227,\"question_id\":39761}}`",
+      "resolution_criteria": "This question will resolve as Yes if Ukraine extends martial law beyond November 5, 2025.",
+      "fine_print": "No additional fine print was provided by Metaculus for this question.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-10-13T15:30:00Z",
+      "actual_resolve_time": "2025-10-30T09:00:00Z",
+      "metadata": {
+        "source": "api2_questions_pagination",
+        "row_url": "https://www.metaculus.com/questions/40285/",
+        "context_warnings": [
+          "fine_print_missing_replaced_with_placeholder"
+        ]
+      }
+    }
+  ]
+}

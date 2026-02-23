@@ -20,7 +20,7 @@ load_dotenv()
 
 # Configuration - Final Forecast Model from .env
 FINAL_FORECAST_MODEL = os.getenv("FINAL_FORECAST_MODEL", "gpt-5-mini")
-FINAL_FORECAST_REASONING_EFFORT = "high"
+FINAL_FORECAST_REASONING_EFFORT = os.getenv("FINAL_FORECAST_REASONING_EFFORT", "high")
 
 
 def _env_flag(name: str, default: bool) -> bool:

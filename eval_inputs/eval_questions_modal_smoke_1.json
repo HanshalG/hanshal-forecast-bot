@@ -1,0 +1,32 @@
+{
+  "schema_version": "v1",
+  "generated_at": "2026-02-23T16:21:05.713407+00:00",
+  "source": {
+    "builder": "scripts/build_eval_question_file.py",
+    "post_ids": [
+      39523,
+      39575,
+      39476
+    ],
+    "context_file": "/Users/hanshalgoyal/hanshal-forecast-bot/eval_inputs/resolved_context_39523_39575_39476.json"
+  },
+  "questions": [
+    {
+      "post_id": 39523,
+      "question_id": 38900,
+      "title": "Will China be able to mass produce humanoid robots by the end of 2025?",
+      "type": "binary",
+      "description": "From the Humanoid robot Wikipedia page: A humanoid robot is a robot resembling the human body in shape. The design may be for functional purposes, such as interacting with human tools and environments, for experimental purposes, such as the study of bipedal locomotion, or for other purposes. In general, humanoid robots have a torso, a head, two arms, and two legs, though some humanoid robots may replicate only part of the body, for example, from the waist up. Some humanoid robots also have heads designed to replicate human facial features such as eyes and mouths. Androids are humanoid robots built to aesthetically resemble humans. Current progress: By 2025, China aims to establish an initial humanoid robot innovation system, achieving breakthroughs in crucial components such as brains, cerebellum, and limbs, while ensuring a safe and efficient supply of core components. The production level for these robots is expected to reach an advanced international standard, with mass production occurring. These robots are anticipated to demonstrate their effectiveness across various fields, from manufacturing to livelihood services. Among China's most advanced projects are those by Xiaomi and Fourier Intelligence. Xiaomi is working on its CyberOne, a robot that is supposed to be capable not only of perceiving space in 3D, but also of recognizing individuals and interpreting their gestures, expressions and emotions. Combined with artificial intelligence, it could one day interact directly with humans. For its part, Fourier Intelligence is preparing to launch its first humanoid robot, the GR-1, specialized in medical actions, capable of moving at 5 km/h and carrying loads of several dozen kilograms. Its first deliveries are scheduled for 2024.",
+      "resolution_criteria": "The question resolves Yes if credible reports indicate a robotics company with headquarters in China has manufactured more than a thousand humanoid robots of an identical model before the end of 2025.",
+      "fine_print": "A humanoid robot in this context means: a bi-pedal robot with two arms, two legs, a head and torso; that can perform at least the basic tasks of walking, picking up objects and carrying; these will perform tasks autonomously driven by AI; they should not be directly controlled by humans.",
+      "label": 1,
+      "resolution_raw": "yes",
+      "status": "resolved",
+      "open_time": "2025-10-21T17:26:35Z",
+      "actual_resolve_time": "2025-12-28T22:00:00Z",
+      "metadata": {
+        "source": "user_manual_context"
+      }
+    }
+  ]
+}
