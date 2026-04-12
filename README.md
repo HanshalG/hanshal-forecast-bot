@@ -11,21 +11,24 @@ Automated forecaster for Metaculus AI tournament questions. Runs locally or on G
 | Will CDU win the most seats in the Baden-Württemberg Landtag election? | 72% | Feb 19 | - The final seat allocation in Baden-Württemberg is determined by the party vote due to the mixed-member proportional system with overhang and compensatory seats, so the party vote largely drives who has the most seats.<br>- Historically CDU has often been the largest party in Baden-Württemberg, but Greens have held the top seat count in three of the last elections, making the long-run base rate less favorable to CDU.<br>- Late-campaign polling places the CDU ahead of the Greens in the party vote by roughly six percentage points, a gap that commonly yields a seat lead under the state’s rules.<br>- Because final seats track the party vote and overhang/compensation introduce some variance, a six-point lead in the vote is typically sufficient for CDU to have the most seats, though not guaranteed.<br>- Several potential headwinds could erode the CDU seat lead: Greens’ high candidate popularity, possible split-ticket voting, enfranchising 16–17-year-olds, and incumbent retirements affecting local contests.<br>- Despite these caveats, the strongest near-term evidence supports CDU finishing with the most seats, with uncertainty mainly arising from multi-party dynamics and small shifts in the final days.<br>- A tie for the most seats remains possible, in which case the outcome would resolve as “No” under the stated rules.<br>- Overall stance: CDU is more likely than not to win the most seats, but the result is not certain given ongoing campaign dynamics. |
 
 ### How it works
-- **Question input**
-  - Tournament modes (`spring-aib-2026`, `minibench`) pull open questions from Metaculus.
-  - `manual` mode loads questions from JSON or JSONL.
+- **Question loading**
+  - `spring-aib-2026` and `minibench` fetch open Metaculus posts through the API.
+  - `manual` mode loads local JSON/JSONL questions and runs the same forecasting pipeline without submission.
 - **Per-run forecasting pipeline**
-  - Generate **outside view** analysis from historical/reference-class evidence.
-  - Generate **inside view** analysis from recent news and targeted research.
-  - Optionally append prediction market context (`--get-prediction-market`).
-  - Run final forecast generation to produce probability/CDF/option distribution + rationale.
+  - An **outside view** agentic loop uses Exa search/answer plus Python to build reference classes, base rates, and timeframe analysis from historical evidence. All Exa responses are filtered for relevance.
+  - An **inside view** agent focuses on current specifics. It pulls AskNews context, filters for relevance, and uses Exa/Python tools for targeted follow-up research.
+  - A **final forecast** agent combines the outside view, inside view, and optional market context from Polymarket into structured JSON output.
+- **Forecast shapes**
+  - Binary questions produce a single probability, which is parsed and clamped to the Metaculus-safe range `[0.001, 0.999]`.
+  - Numeric and discrete questions produce percentile estimates, which are converted into a Metaculus continuous CDF and then repaired to satisfy monotonicity and bound constraints.
+  - Multiple-choice questions produce per-option probabilities, which are normalized to sum to `1.0`.
 - **Aggregation across runs (`--num-runs`)**
-  - Binary: median probability.
-  - Numeric/Discrete: median CDF (then monotonicity enforcement).
-  - Multiple-choice: trimmed linear opinion pool.
-- **Output + submission**
-  - Always logs forecast events locally.
-  - Submits prediction/comment to Metaculus only when `--submit` is enabled (not supported in `manual` mode).
+  - Binary: take the median probability, then keep the rationale from the run closest to that median.
+  - Numeric/Discrete: take the pointwise median CDF across runs, then enforce monotonicity; keep the rationale from the run whose CDF is closest to the median CDF.
+  - Multiple-choice: build a trimmed linear opinion pool by dropping the most outlying 20% of runs, averaging the rest, and renormalizing.
+- **Comment generation, logging
+  - After aggregation, a cheaper summary model rewrites the selected rationale into 5-10 bullet points for the forecast comment.
+  - Every question logs the final forecast, selected outside/inside analyses, per-run probabilities, token/cost estimates, tool usage, cache hits/misses, and AskNews filtering stats locally, with optional Supabase logging.
 
 ### Quick start (local)
 1) Install dependencies (Python 3.11)
